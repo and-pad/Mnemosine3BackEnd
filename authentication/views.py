@@ -66,12 +66,12 @@ class signinView(APIView):
         if serializer.is_valid():
             user = serializer.validated_data["user"]
             refresh = RefreshToken.for_user(user)
-
+            print(user)
             return Response(
                 {
                     "refresh": str(refresh),
                     "access": str(refresh.access_token),
-                },
+                    "user": str(user),               },
                 status=status.HTTP_202_ACCEPTED,
             )
 
@@ -82,7 +82,7 @@ class signinView(APIView):
     def put(self, request):
         # renovacion del acceso del token
         refresh = request.data.get("refresh")       
-        
+        username = request.user.username
         if not refresh:
             return Response({"error", "Se requiere de un token"}, status=status.HTTP_400_BAD_REQUEST)
         
@@ -92,7 +92,7 @@ class signinView(APIView):
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         
-        return Response({"access": access_token}, status=status.HTTP_200_OK)
+        return Response({"access": access_token, "user": str(username)}, status=status.HTTP_200_OK)
         
 
 
@@ -132,72 +132,14 @@ class SignupView(APIView):
             status=status.HTTP_400_BAD_REQUEST,
         )  # Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-
-
-
-class Search(APIView):
-    authentication_classes = []  # Desactiva la autenticación
-    permission_classes = [AllowAny]  # Permite a cualquiera acceder a esta vista
-
-    def validate(self, to_match, argument):
-        # Si el argumento es un email, validarlo
-        if to_match == "email":
-            if re.match(r"^[\w\.-]+@[\w\.-]+\.\w+$", argument):
-                return True
-            else:
-                return False
-        # Si el argumento es un nombre de usuario, validarlo
-        elif to_match == "username":
-            if re.match(r"^\w{4,}$", argument):
-                return True
-            # En otro caso, considerarlo como inválido
-            else:
-                return False
-
-    def post(self, request):
-
-        if request.data.get("email"):
-            to_search = request.data.get("email")
-            if self.validate("email", to_search):
-                email = User.objects.filter(email=to_search)
-            else:
-                return Response({"exist": False, "incomplete": True})
-
-            if email:
-                return Response(
-                    {"exist": True},
-                    status=status.HTTP_200_OK,
-                )
-            else:
-                return Response(
-                    {"exist": False},
-                    status=status.HTTP_200_OK,
-                )
-        elif request.data.get("username"):
-            to_search = request.data.get("username")
-            if self.validate("username", to_search):
-                username = User.objects.filter(username=to_search)
-            else:
-                return Response({"exist": False, "incomplete": True})
-
-            if username:
-                return Response(
-                    {"exist": True},
-                    status=status.HTTP_200_OK,
-                )
-            else:
-                return Response(
-                    {"exist": False},
-                    status=status.HTTP_200_OK,
-                )
-
 class CheckAccesToken(APIView):
     permission_classes = [IsAuthenticated]
     
     def post (self, request):
         
         authorization_header = request.headers.get("Authorization")
-        
+        username = request.user.username
+        print(username)
         if authorization_header:
             # Dividir el encabezado Authorization para obtener el token de acceso
             parts = authorization_header.split()
@@ -216,7 +158,7 @@ class CheckAccesToken(APIView):
 
                 # Calcular el tiempo restante antes de que el token expire
                 time_left = expiration_time - current_time
-                return Response({"time_left":time_left})
+                return Response({"time_left":time_left, "user":str(username)})
         return Response({"error":"Can not obtain the time"})
                 
 
@@ -227,7 +169,7 @@ class CheckAccesToken(APIView):
         
         
         
-        return Response({"access_token": str(access_token)})
+      
         
 
         

@@ -1,6 +1,157 @@
+from bson import ObjectId
 
-"""En esta busqueda de Mongo lo que se hace es buscar todos los ids que hay en la tabla pieces
-    Y extraemos sus datos para finalmente agregarlos como campos en la salida"""
+def pieceDetail(_id):
+    PIECE_DETAIL = [
+        {"$match": {'_id': ObjectId(_id)}},
+        {
+            "$lookup": {
+                "from": "genders",
+                "localField": "gender_id",
+                "foreignField": "_id",
+                "as": "genders_info"
+            }
+        },
+        {
+            "$lookup": {
+                "from": "subgenders",
+                "localField": "subgender_id",
+                "foreignField": "_id",
+                "as": "subgenders_info"
+            }
+        },
+        {
+            "$lookup": {
+                "from": "catalog_elements",
+                "localField": "type_object_id",
+                "foreignField": "_id",
+                "as": "type_object_info"
+            }
+        },
+        {
+            "$lookup": {
+                "from": "photographs",
+                "let": {"piece_id": "$_id"},
+                "pipeline": [
+                    {"$match": {"$expr": {"$eq": ["$piece_id", "$$piece_id"]}}},
+                    {"$match": {"$expr": {"$eq": ["$deleted_at", None]}}},
+                    {
+                        "$lookup": {
+                            "from": "modules",
+                            "localField": "module_id",
+                            "foreignField": "_id",
+                            "as": "module_info"
+                        }
+                    },
+                    {"$match": {"module_info.name": "inventario"}},
+                    {"$group": {"_id": "$_id", "photos": {"$push": "$$ROOT"}}}
+                ],
+                "as": "photo_info"
+            }
+        },
+        {
+            "$lookup": {
+                "from": "researchs",
+                "localField": "_id",
+                "foreignField": "piece_id",
+                "as": "research_info"
+            }
+        },
+        {
+            "$lookup": {
+                "from": "exhibitions",
+                "localField": "location_id",
+                "foreignField": "_id",
+                "as": "location_info"
+            }
+        },
+        {
+            "$lookup": {
+                "from": "appraisal",
+                "let": {"piece_id": "$_id"},
+                "pipeline": [
+                    {"$match": {"$expr": {"$eq": ["$piece_id", "$$piece_id"]}}},
+                    {"$match": {"$expr": { "$eq": ["$deleted_at", None] },
+                }
+            },
+                    {"$sort": {"created_at": -1, "appraisal_id": -1}},
+                    
+                ],
+                "as": "appraisals_info"
+            }
+        },
+        {
+            "$lookup": {
+                "from": "restorations",
+                "let": {"piece_id": "$_id"},
+                "pipeline": [
+                    {"$match": {"$expr": {"$eq": ["$piece_id", "$$piece_id"]}}},
+                    {"$sort": {"treatment_date": -1}}
+                ],
+                "as": "restorations_info"
+            }
+        },
+        {
+            "$addFields": {
+                "genders_info": {
+                    "$mergeObjects": [
+                        {
+                            "title": {"$arrayElemAt": ["$genders_info.title", 0]},
+                            "description": {"$arrayElemAt": ["$genders_info.description", 0]}
+                        }
+                    ]
+                },
+                "subgenders_info": {
+                    "$mergeObjects": [
+                        {
+                            "title": {"$arrayElemAt": ["$subgenders_info.title", 0]},
+                            "description": {"$arrayElemAt": ["$subgenders_info.description", 0]}
+                        }
+                    ]
+                },
+                "type_object_info": {
+                    "$mergeObjects": [
+                        {
+                            "title": {"$arrayElemAt": ["$type_object_info.title", 0]},
+                            "description": {"$arrayElemAt": ["$type_object_info.description", 0]}
+                        }
+                    ]
+                },
+                "photo_info": "$photo_info.photos",
+                "research_info": {
+                    "$mergeObjects": [
+                        {
+                            "title": {"$arrayElemAt": ["$research_info.title", 0]},
+                            "keywords": {"$arrayElemAt": ["$research_info.keywords", 0]},
+                            "technique": {"$arrayElemAt": ["$research_info.technique", 0]},
+                            "materials": {"$arrayElemAt": ["$research_info.materials", 0]},
+                            "acquisition_form": {"$arrayElemAt": ["$research_info.acquisition_form", 0]},
+                            "acquisition_source": {"$arrayElemAt": ["$research_info.acquisition_source", 0]},
+                            "acquisition_date": {"$arrayElemAt": ["$research_info.acquisition_date", 0]},
+                            "firm_description": {"$arrayElemAt": ["$research_info.firm_description", 0]},
+                            "short_description": {"$arrayElemAt": ["$research_info.short_description", 0]},
+                            "formal_description": {"$arrayElemAt": ["$research_info.formal_description", 0]},
+                            "observation": {"$arrayElemAt": ["$research_info.observation", 0]},
+                            "publications": {"$arrayElemAt": ["$research_info.publications", 0]},
+                            "card": {"$arrayElemAt": ["$research_info.card", 0]}
+                        }
+                    ]
+                },
+                "location_info": {
+                    "$mergeObjects": [
+                        {
+                            "name": {"$arrayElemAt": ["$location_info.name", 0]}
+                        }
+                    ]
+                },
+                "appraisals_info": "$appraisals_info",
+                "restorations_info": "$restorations_info"
+            }
+        }
+    ]
+    return PIECE_DETAIL
+
+ 
+
 PIECES_ALL = [
             
             {# lookup lo que hace es ver en otra collecion                 
@@ -155,7 +306,7 @@ PIECES_ALL = [
         # Se asigna el resultado al campo "photo_thumb_info"
         "as": "photo_thumb_info"
     }
-},                       
+},                      
             
             {
                 "$addFields": {
