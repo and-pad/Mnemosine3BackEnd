@@ -1,3 +1,7 @@
 venv/
 0.3.1
 MnemosineV3_0/static/
+.vscode/
+=4
+4
+**__pycache__**

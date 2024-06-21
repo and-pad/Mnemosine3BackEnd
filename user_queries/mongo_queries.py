@@ -3,12 +3,13 @@ from bson import ObjectId
 def pieceDetail(_id):
     PIECE_DETAIL = [
         {"$match": {'_id': ObjectId(_id)}},
+        {"$match": {"$expr": {"$eq": ["$deleted_at", None]}}},        
         {
             "$lookup": {
                 "from": "genders",
                 "localField": "gender_id",
                 "foreignField": "_id",
-                "as": "genders_info"
+                "as": "genders_info",
             }
         },
         {
@@ -16,7 +17,7 @@ def pieceDetail(_id):
                 "from": "subgenders",
                 "localField": "subgender_id",
                 "foreignField": "_id",
-                "as": "subgenders_info"
+                "as": "subgenders_info",
             }
         },
         {
@@ -24,8 +25,16 @@ def pieceDetail(_id):
                 "from": "catalog_elements",
                 "localField": "type_object_id",
                 "foreignField": "_id",
-                "as": "type_object_info"
+                "as": "type_object_info",
             }
+        },
+        {
+                "$lookup": {
+                    "from": "catalog_elements",
+                    "localField": "dominant_material_id",
+                    "foreignField": "_id",
+                    "as": "dominant_material_info"
+                }
         },
         {
             "$lookup": {
@@ -39,21 +48,82 @@ def pieceDetail(_id):
                             "from": "modules",
                             "localField": "module_id",
                             "foreignField": "_id",
-                            "as": "module_info"
+                            "as": "module_info",
                         }
                     },
                     {"$match": {"module_info.name": "inventario"}},
-                    {"$group": {"_id": "$_id", "photos": {"$push": "$$ROOT"}}}
+                    {"$group": {"_id": "$_id", "photos": {"$push": "$$ROOT"}}},
                 ],
-                "as": "photo_info"
+                "as": "photo_info",
             }
         },
+        {      
+        "$lookup":{
+            "from": "restorations",
+            "let": {                
+                "piece_id": "$_id"                
+                },
+            "pipeline": [
+                {"$match": {"$expr": {"$eq": ["$piece_id", "$$piece_id"]}}},
+                {"$match": {"$expr": {"$eq": ["$deleted_at", None]}}},
+                {
+                    "$lookup":{
+                        "from": "catalog_elements",
+                        "localField": "responsible_restorer",
+                        "foreignField": "_id",
+                        "as": "responsible_info",
+                    }
+                },                
+                {
+                 "$addFields": {                
+                "responsible": {
+                    "$mergeObjects": [
+                        {
+                            "title": {"$arrayElemAt": ["$responsible_info.title", 0]},
+                            "restoration_id": "$_id" ,                            
+                        }
+                    ]
+                },
+                 },
+                },                
+            ],
+            "as":"responsible_info"
+        },
+        },      
         {
             "$lookup": {
                 "from": "researchs",
-                "localField": "_id",
-                "foreignField": "piece_id",
-                "as": "research_info"
+                
+                
+                "let": {"piece_id":"$_id"},
+                "pipeline":[
+                    {"$match":{"$expr":{"$eq":["$piece_id", "$$piece_id"]}}},
+                    {"$match": {"$expr": { "$eq": ["$deleted_at", None] }}},
+                    {
+                        "$lookup":{
+                            "from":"bibliographies",
+                            "localField":"_id",
+                            "foreignField":"research_id",
+                            "as": "bibliographies_info",
+                        }
+                        
+                    },  
+                    {
+                        "$lookup":{
+                            "from":"footnotes",
+                            "localField":"_id",
+                            "foreignField":"research_id",
+                            "as": "footnotes_info",
+                        }                        
+                    },                                        
+                    {"$addFields":{
+                        "bibliographies_info": "$bibliographies_info",
+                        "footnotes_info":"$footnotes_info",                        
+                    }
+                     
+                     },                                        
+                ],                
+                "as": "research_info",
             }
         },
         {
@@ -61,7 +131,7 @@ def pieceDetail(_id):
                 "from": "exhibitions",
                 "localField": "location_id",
                 "foreignField": "_id",
-                "as": "location_info"
+                "as": "location_info",
             }
         },
         {
@@ -70,13 +140,10 @@ def pieceDetail(_id):
                 "let": {"piece_id": "$_id"},
                 "pipeline": [
                     {"$match": {"$expr": {"$eq": ["$piece_id", "$$piece_id"]}}},
-                    {"$match": {"$expr": { "$eq": ["$deleted_at", None] },
-                }
-            },
-                    {"$sort": {"created_at": -1, "appraisal_id": -1}},
-                    
+                    {"$match": {"$expr": { "$eq": ["$deleted_at", None] },}},
+                    {"$sort": {"created_at": -1, "appraisal_id": -1}},                    
                 ],
-                "as": "appraisals_info"
+                "as": "appraisals_info",
             }
         },
         {
@@ -86,10 +153,47 @@ def pieceDetail(_id):
                 "pipeline": [
                     {"$match": {"$expr": {"$eq": ["$piece_id", "$$piece_id"]}}},
                     {"$sort": {"treatment_date": -1}}
+                    
                 ],
-                "as": "restorations_info"
+                "as": "restorations_info",
             }
         },
+        
+             {
+            "$lookup": {
+                "from": "auth_user",
+                "localField": "created_by",
+                "foreignField": "id",
+                "as": "created_by_piece_info",
+            }
+            
+        },
+         {
+            "$lookup": {
+                "from": "auth_user",
+                "localField": "updated_by",
+                "foreignField": "id",
+                "as": "updated_by_piece_info",
+            }            
+        },   
+         {
+             "$lookup":{
+                 "from": "movements",
+                 "let":{"piece_id":"$_id"},
+                 "pipeline":[
+                     {"$match":{"$expr": {
+                        "$and": [
+                            { "$ne": ["$pieces_ids", None] },
+                            { "$in": ["$$piece_id", "$pieces_ids"] }
+                        ]
+                    }}},
+                     {"$match":{"$expr":{"$gt":["$authorized_by_movements",0]}}},
+                     {"$sort":{"departure_date": -1}},                     
+                 ],
+                 "as":"movements_info",
+             }
+             
+         },
         {
             "$addFields": {
                 "genders_info": {
@@ -108,6 +212,14 @@ def pieceDetail(_id):
                         }
                     ]
                 },
+                "dominant_material_info":{
+                    "$mergeObjects":[
+                        {
+                            "title": {"$arrayElemAt":["$dominant_material.title",0]},
+                            "description": {"$arrayElemAt":["$dominant_material.description",0]},                            
+                        }
+                        ],
+                    },                    
                 "type_object_info": {
                     "$mergeObjects": [
                         {
@@ -132,28 +244,52 @@ def pieceDetail(_id):
                             "formal_description": {"$arrayElemAt": ["$research_info.formal_description", 0]},
                             "observation": {"$arrayElemAt": ["$research_info.observation", 0]},
                             "publications": {"$arrayElemAt": ["$research_info.publications", 0]},
-                            "card": {"$arrayElemAt": ["$research_info.card", 0]}
+                            "card": {"$arrayElemAt": ["$research_info.card", 0]},
+                            "bibliographies_info":"$research_info.bibliographies_info",
+                            "footnotes_info":"$research_info.footnotes_info",
                         }
                     ]
                 },
                 "location_info": {
                     "$mergeObjects": [
                         {
-                            "name": {"$arrayElemAt": ["$location_info.name", 0]}
+                            "name": {"$arrayElemAt": ["$location_info.name", 0]},
                         }
                     ]
                 },
+                "created_by_piece_info":{ 
+                    "$mergeObjects":[
+                        {
+                            "username": {"$arrayElemAt": ["$created_by_piece_info.username", 0]},
+                        }
+                        
+                    ]},                
+                "updated_by_piece_info":{ 
+                    "$mergeObjects":[
+                        {
+                            "username": {"$arrayElemAt": ["$updated_by_piece_info.username", 0]},
+                        }                        
+                    ]},       
                 "appraisals_info": "$appraisals_info",
-                "restorations_info": "$restorations_info"
+                "restorations_info": "$restorations_info",
+                "responsible_info":{
+                    "$mergeObjects": [
+                        {                           
+                            "responsible":{
+                                "name":"$responsible_info.responsible.title",
+                                "_id":"$responsible_info.responsible.restoration_id",                                
+                                },                            
+                        }
+                    ]
+                    },
+                "first_movement": { "$arrayElemAt": ["$movements_info", 0] },
+                "all_movements_info": "$movements_info",
             }
         }
     ]
-    return PIECE_DETAIL
+    return PIECE_DETAIL 
 
- 
-
-PIECES_ALL = [
-            
+PIECES_ALL = [            
             {# lookup lo que hace es ver en otra collecion                 
                 "$lookup": {
                     "from": "genders",# Aqui le ponemos el nombre de la colección a buscar
@@ -282,8 +418,7 @@ PIECES_ALL = [
                     "$expr": { "$eq": ["$deleted_at", None] }
                 }
             },
-            # Se realiza un segundo lookup con la colección de módulos
-            
+            # Se realiza un segundo lookup con la colección de módulos            
             {
                 "$lookup": {
                     "from": "modules",
@@ -306,47 +441,36 @@ PIECES_ALL = [
         # Se asigna el resultado al campo "photo_thumb_info"
         "as": "photo_thumb_info"
     }
-},                      
-            
+},                                  
             {
-                "$addFields": {
-                    
-                      
-                      
+                "$addFields": {                      
                     "period_info":{
                         "$map": {
                                 "input": "$period_info",
                                 "as": "period",
                                 "in": {
-                                    "title": "$$period.title",                                   
-                                
+                                    "title": "$$period.title",                                
                         }
                     }
                         },
-                    
-                    
                     "involved_creation_info":{
                         "$map": {
                                 "input": "$involved_creation_info",
                                 "as": "involved",
                                 "in": {
-                                    "title": "$$involved.title",                                   
-                                
-                        }
-                    }
-                        },
-                    
+                                    "title": "$$involved.title",                                                                   
+                                    }
+                                }
+                        },                    
                     "authors_info": {
                             "$map": {
                                 "input": "$authors_info",
                                 "as": "author",
                                 "in": {
-                                    "title": "$$author.title",                                   
-                                
+                                    "title": "$$author.title",                                
                         }
                     }
-                },
-                            
+                },                            
                     "research_info":{
                         "$mergeObjects": [
                             {
@@ -362,10 +486,8 @@ PIECES_ALL = [
                                 "formal_description": { "$arrayElemAt": ["$research_info.formal_description", 0] },
                                 "observation": { "$arrayElemAt": ["$research_info.observation", 0] },
                                 "publications": { "$arrayElemAt": ["$research_info.publications", 0] },
-                                "card": { "$arrayElemAt": ["$research_info.card", 0] },
-                                
-                            },
-                           
+                                "card": { "$arrayElemAt": ["$research_info.card", 0] },                                
+                            },                           
                         ]
                     },
                         "photo_thumb_info": {
@@ -373,8 +495,7 @@ PIECES_ALL = [
                             {
                                 "file_name": { "$arrayElemAt": ["$photo_thumb_info.file_name", 0] },
                             },
-                            ]
-                          
+                            ]                          
                       },
                     "genders_info": {
                         "$mergeObjects": [
@@ -390,8 +511,7 @@ PIECES_ALL = [
                             {
                                 "title": { "$arrayElemAt": ["$subgenders_info.title", 0] },
                                 "description": { "$arrayElemAt": ["$subgenders_info.description", 0] }
-                            },
-                           
+                            },                           
                         ]
                     },
                     "type_object_info": {
@@ -399,8 +519,7 @@ PIECES_ALL = [
                             {
                                 "title": { "$arrayElemAt": ["$type_object_info.title", 0] },
                                 "description": { "$arrayElemAt": ["$type_object_info.description", 0] }
-                            },
-                           
+                            },                           
                         ]
                     },                    
                     "catalog_type_object_info":{
@@ -431,8 +550,7 @@ PIECES_ALL = [
                             {
                                 "code": { "$arrayElemAt": ["$catalog_dominant_material_info.code", 0] },                                
                                 "title": { "$arrayElemAt": ["$catalog_dominant_material_info.title", 0] },                                
-                            },
-                           
+                            },                           
                         ]
                     },                    
                     "institutions_info" : {

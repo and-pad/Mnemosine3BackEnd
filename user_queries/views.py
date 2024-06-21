@@ -26,7 +26,7 @@ class UserQueryAll(APIView):
         search_collection = mongo.connect('pieces_search') 
         
         #for document in cursor:
-            #search_collection.insert_one(document)        
+            #search_collection.insert_one(document)   
         
         cursor = search_collection.find()
         documents =[doc for doc in cursor]                        
@@ -34,7 +34,7 @@ class UserQueryAll(APIView):
         
         duration = time.time() - start
         
-        return Response({"query_duration":duration,"query":json_data},status=status.HTTP_202_ACCEPTED)
+        return Response({"query_durationf":duration,"query":json_data},status=status.HTTP_202_ACCEPTED)
     
 class UserQueryDetail(APIView):
     permission_classes = [IsAuthenticated]
