@@ -1,6 +1,5 @@
 import pymongo
 
-
 class Mongo:
 
     def connect(self, dBcoleccion):
@@ -9,14 +8,15 @@ class Mongo:
         usuario = "usuario1"
         contraseña = "123456"
         cliente = pymongo.MongoClient(
-            "mongodb://{}:{}@192.168.1.103:27017/".format(usuario, contraseña)
+            "mongodb://{}:{}@192.168.1.103:33333/".format(usuario, contraseña)
         )
         db = cliente[db_name]
         coleccion = db[coleccion]
         return coleccion
     
-    
+    """
     def execute(self, collection=None, data=None):
         cursor = collection.find().limit(10)
         return cursor
+    """
         

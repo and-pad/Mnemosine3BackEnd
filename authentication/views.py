@@ -1,7 +1,7 @@
-from django.shortcuts import render
+
 
 # Create your views here.
-import re
+
 import jwt
 from django.contrib.auth.models import User
 from rest_framework import serializers
@@ -13,6 +13,8 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.permissions import IsAuthenticated
 from django.contrib.auth import authenticate
 from django.contrib.auth import get_user_model
+from rest_framework_simplejwt.authentication import JWTAuthentication
+
 
 from time import time
 
@@ -71,7 +73,8 @@ class signinView(APIView):
                 {
                     "refresh": str(refresh),
                     "access": str(refresh.access_token),
-                    "user": str(user),               },
+                    "user": str(user), 
+                },
                 status=status.HTTP_202_ACCEPTED,
             )
 
@@ -80,19 +83,19 @@ class signinView(APIView):
             return Response(serializer.errors, status=status.HTTP_401_UNAUTHORIZED)
         
     def put(self, request):
-        # renovacion del acceso del token
-        refresh = request.data.get("refresh")       
-        username = request.user.username
+        refresh = request.data.get("refresh")
         if not refresh:
-            return Response({"error", "Se requiere de un token"}, status=status.HTTP_400_BAD_REQUEST)
-        
+            return Response({"error": "Se requiere de un token"}, status=status.HTTP_400_BAD_REQUEST)
+
         try:
             refresh_token = RefreshToken(refresh)
-            access_token = str(refresh_token.access_token)        
+            user_id = refresh_token.payload['user_id']
+            user = User.objects.get(id=user_id)
+            access_token = str(refresh_token.access_token)
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-        
-        return Response({"access": access_token, "user": str(username)}, status=status.HTTP_200_OK)
+
+        return Response({"access": access_token, "user": user.username}, status=status.HTTP_200_OK)
         
 
 
@@ -134,12 +137,13 @@ class SignupView(APIView):
 
 class CheckAccesToken(APIView):
     permission_classes = [IsAuthenticated]
-    
+    authentication_classes = [JWTAuthentication]
     def post (self, request):
         
         authorization_header = request.headers.get("Authorization")
+        #print(f"Authorization Header: {authorization_header}")  # Añade este log
         username = request.user.username
-        print(username)
+        print(f"Authenticated User: {username}")  # Añade este log
         if authorization_header:
             # Dividir el encabezado Authorization para obtener el token de acceso
             parts = authorization_header.split()
@@ -160,16 +164,3 @@ class CheckAccesToken(APIView):
                 time_left = expiration_time - current_time
                 return Response({"time_left":time_left, "user":str(username)})
         return Response({"error":"Can not obtain the time"})
-                
-
-                              
-            
-        
-        
-        
-        
-        
-      
-        
-
-        
