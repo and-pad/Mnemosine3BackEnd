@@ -12,7 +12,7 @@ from rest_framework import status
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.permissions import IsAuthenticated
 from django.contrib.auth import authenticate
-from django.contrib.auth import get_user_model
+#from django.contrib.auth import get_user_model
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
 
@@ -25,38 +25,20 @@ class LoginSerializer(serializers.Serializer):
     password = serializers.CharField()
 
     def validate(self, data):
+        #UserModel = get_user_model()
+        email = data.get("email")
+        password = data.get("password")
         
-        UserModel = get_user_model()          
-        users = UserModel.objects.filter(email=data.get("email"))
-        
-        if not users:
-            raise serializers.ValidationError(
-                "No se encontró ningún usuario con este correo electrónico."
-            )
-        
-        for user in users:
-            username = user.get_username()
-            password = data.get("password")
-            print(username)
-            
-            if username and password:
-                authenticated_user = authenticate(username=username, password=password)
-                if authenticated_user:
-                    if authenticated_user.is_active:
-                        data["user"] = authenticated_user
-                        return data  # Salir del bucle y retornar los datos validados
-                    else:
-                        raise serializers.ValidationError(
-                            "La cuenta del usuario está desactivada."
-                        )
-                else:
-                    # Si la autenticación falla, continuar con el siguiente usuario
-                    continue
+        authenticated_user = authenticate(username=email, password=password)
+        if authenticated_user:
+            if authenticated_user.is_active:
+                data["user"] = authenticated_user
+                return data
+            else:
+                raise serializers.ValidationError("La cuenta del usuario está desactivada.")
+        else:
+            raise serializers.ValidationError("No se pudo autenticar al usuario con las credenciales proporcionadas.")
 
-        raise serializers.ValidationError(
-            "No se pudo autenticar ningún usuario con las credenciales proporcionadas."
-        )
-        return data
 
 
 class signinView(APIView):
@@ -163,4 +145,4 @@ class CheckAccesToken(APIView):
                 # Calcular el tiempo restante antes de que el token expire
                 time_left = expiration_time - current_time
                 return Response({"time_left":time_left, "user":str(username)})
-        return Response({"error":"Can not obtain the time"})
+        return Response({"error":"Can not obtain the user name"})

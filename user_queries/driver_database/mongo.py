@@ -8,7 +8,7 @@ class Mongo:
         usuario = "usuario1"
         contraseña = "123456"
         cliente = pymongo.MongoClient(
-            "mongodb://{}:{}@192.168.1.103:33333/".format(usuario, contraseña)
+            "mongodb://{}:{}@localhost:27017/".format(usuario, contraseña)
         )
         db = cliente[db_name]
         coleccion = db[coleccion]
