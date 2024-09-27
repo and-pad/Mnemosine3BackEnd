@@ -1,7 +1,5 @@
 
-
 # Create your views here.
-
 import jwt
 from django.contrib.auth.models import User
 from rest_framework import serializers
@@ -12,12 +10,12 @@ from rest_framework import status
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.permissions import IsAuthenticated
 from django.contrib.auth import authenticate
-#from django.contrib.auth import get_user_model
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
+from .mongo_queries import getPermissions
 
 from time import time
-
+from user_queries.driver_database.mongo import Mongo    
 
 
 class LoginSerializer(serializers.Serializer):
@@ -25,21 +23,47 @@ class LoginSerializer(serializers.Serializer):
     password = serializers.CharField()
 
     def validate(self, data):
-        #UserModel = get_user_model()
+        
         email = data.get("email")
         password = data.get("password")
         
         authenticated_user = authenticate(username=email, password=password)
         if authenticated_user:
             if authenticated_user.is_active:
-                data["user"] = authenticated_user
+                data["user"] = authenticated_user                
                 return data
             else:
                 raise serializers.ValidationError("La cuenta del usuario está desactivada.")
         else:
             raise serializers.ValidationError("No se pudo autenticar al usuario con las credenciales proporcionadas.")
 
+class Permission:
+    def get_permission(self, user):
+        mongo = Mongo()
+        collection = mongo.connect('user_has_roles')
+        cursor = collection.aggregate(getPermissions(user))
 
+        # Almacenar el resultado en una lista
+        results = list(cursor)
+        for item in results:
+            
+            permissions_info = item['permissions_info']
+            overwrite_permissions_info = item['overwrite_permissions_info']
+            for overwrite_perm in overwrite_permissions_info:
+                # Verificar si el permiso ya existe
+                for i, perm in enumerate(permissions_info):
+                    if perm['id'] == overwrite_perm['id']:
+                        permissions_info[i] = overwrite_perm  # Sobrescribir
+                        break
+                    else:
+                        permissions_info.append(overwrite_perm)  # Agregar si no existe
+            
+            names = [perm['name'] for perm in permissions_info]
+            
+            #names = ['ver_usuarios', 'ver_roles', 'ver_catalogos', 'ver_configuraciones']
+            print(names)
+            return names
+    
 
 class signinView(APIView):
     authentication_classes = []  # Desactiva la autenticación
@@ -50,16 +74,19 @@ class signinView(APIView):
         if serializer.is_valid():
             user = serializer.validated_data["user"]
             refresh = RefreshToken.for_user(user)
-            print(user)
+            #print(user)
+            permission = Permission()            
+            user_permissions = permission.get_permission(user)
+                        
             return Response(
                 {
                     "refresh": str(refresh),
                     "access": str(refresh.access_token),
                     "user": str(user), 
+                    "permissions": str(user_permissions),                    
                 },
                 status=status.HTTP_202_ACCEPTED,
-            )
-
+                )
         else:
             # Si los datos de la solicitud no son válidos, devolver los errores de validación
             return Response(serializer.errors, status=status.HTTP_401_UNAUTHORIZED)
@@ -68,19 +95,20 @@ class signinView(APIView):
         refresh = request.data.get("refresh")
         if not refresh:
             return Response({"error": "Se requiere de un token"}, status=status.HTTP_400_BAD_REQUEST)
-
         try:
             refresh_token = RefreshToken(refresh)
             user_id = refresh_token.payload['user_id']
             user = User.objects.get(id=user_id)
-            access_token = str(refresh_token.access_token)
+            access_token = str(refresh_token.access_token)            
+            user = request.user                
+            permission = Permission()            
+            user_permissions = permission.get_permission(user)
+            
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-        return Response({"access": access_token, "user": user.username}, status=status.HTTP_200_OK)
-        
-
-
+        return Response({"access": access_token, "user": user.username, "user_permissions":user_permissions}, status=status.HTTP_200_OK)
+    
 class SignupSerializer(serializers.Serializer):
     username = serializers.CharField(max_length=150)
     password = serializers.CharField(write_only=True)
@@ -89,7 +117,6 @@ class SignupSerializer(serializers.Serializer):
     def create(self, validated_data):
         user = User.objects.create_user(**validated_data)
         return user
-
 
 class SignupView(APIView):
     authentication_classes = []  # Desactiva la autenticación
@@ -143,6 +170,12 @@ class CheckAccesToken(APIView):
                 current_time = time()
 
                 # Calcular el tiempo restante antes de que el token expire
-                time_left = expiration_time - current_time
+                time_left = expiration_time - current_time               
+                
+                #print(user_permissions,'desde aca')                
                 return Response({"time_left":time_left, "user":str(username)})
         return Response({"error":"Can not obtain the user name"})
+    
+class SavePermissions():
+    pass
+    

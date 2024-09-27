@@ -60,7 +60,7 @@ class UserQueryDetail(APIView):
         documents = [doc for doc in cursor]                        
         json_detail = json.loads(json.dumps(documents, default=str))        
 
-        modules = mongo.connect('modules')
+        modules = mongo.connect('modules')   
 
         cursor = modules.find(MODULES)
         documents = [doc for doc in cursor]                        
@@ -122,12 +122,18 @@ class GenerateDetailPieceDocx(APIView):
                 place_of_creation = ' '.join([place.get('title', '') for place in place_of])              
             else:
                 place_of_creation = "N/A" 
+                
+            creation_date = piece.get('research_info', {}).get('creation_date', '')
+            creation_date = html.escape(materials).replace('\n', '</w:t><w:br/><w:t>') if creation_date else "N/A"
+            
+            periods = piece.get('period_info', [])
+            if periods:
+                period_info = ' '.join([period.get('title', '') for period in periods])                                
             
             research_info = piece.get('research_info')
             
             modules_collection = mongo.connect('modules')
             inventory_module = modules_collection.find_one({"name":"inventory"})
-            
             
             if inventory_module: 
                 module_inventory_id = inventory_module['_id']
@@ -142,9 +148,9 @@ class GenerateDetailPieceDocx(APIView):
                 
                     )
                 photos_inventory = []
-                if inventory_photos:                                        
+                if inventory_photos: 
                     for photo in inventory_photos:
-                        print(photo)
+                        
                         image = settings.THUMBNAILS_INVENTORY_PATH + f"{photo['file_name']}"
                         photos_inventory.append(image)
                     
@@ -154,12 +160,16 @@ class GenerateDetailPieceDocx(APIView):
                     # Imagen en blanco si no hay suficientes imágenes
                     empty_img = settings.BLANK_IMG  # Reemplaza con la ruta de tu imagen en blanco
                     
-                    images_context = {}
-                    for i, row in enumerate(rows_array):
-                        images_context[f'iimga'] = InlineImage(template, row[0], width=Mm(25)) if len(row) > 0 else InlineImage(template, empty_img, width=Mm(25))
-                        images_context[f'iimgb'] = InlineImage(template, row[1], width=Mm(25)) if len(row) > 1 else InlineImage(template, empty_img, width=Mm(25))
-                        images_context[f'iimgc'] = InlineImage(template, row[2], width=Mm(25)) if len(row) > 2 else InlineImage(template, empty_img, width=Mm(25))
-                        images_context[f'iimgd'] = InlineImage(template, row[3], width=Mm(25)) if len(row) > 3 else InlineImage(template, empty_img, width=Mm(25))
+                     # Crear un contexto dinámico con filas de imágenes
+                    inventory_images_context = []
+                    for row in rows_array:
+                        images_row = {
+                            'iimga': InlineImage(template, row[0], width=Mm(20)) if len(row) > 0 else InlineImage(template, empty_img, width=Mm(20)),
+                            'iimgb': InlineImage(template, row[1], width=Mm(20)) if len(row) > 1 else InlineImage(template, empty_img, width=Mm(20)),
+                            'iimgc': InlineImage(template, row[2], width=Mm(20)) if len(row) > 2 else InlineImage(template, empty_img, width=Mm(20)),
+                            'iimgd': InlineImage(template, row[3], width=Mm(20)) if len(row) > 3 else InlineImage(template, empty_img, width=Mm(20)),
+                        }
+                        inventory_images_context.append(images_row)
                   
             if research_info:
             
@@ -189,15 +199,21 @@ class GenerateDetailPieceDocx(APIView):
                     'tecnica': technique,
                     'materiales': materials,
                     'procedencia': place_of_creation,
-                    **images_context,
+                    'images': inventory_images_context,
+                    'fcreacion': creation_date,
+                    'epoca': period_info,
                  }
+            #Toma la plantilla y le pone los datos del contexto
             template.render(context)
-            
+            #Crea un archivo vacio de tipo BytesIO            
             doc_io = BytesIO()
+            #Vuelca o salva el contenido del template en el archivo en blanco.
             template.save(doc_io)
             doc_io.seek(0)  # Mover el cursor al inicio del BytesIO   
+            #Se forma la respuesta HTTP, y se le aplica el formato en este caso de word
             response = HttpResponse(doc_io, content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
-            response['Content-Disposition'] = 'attachment; filename=detalle_pieza.docx'   
+            #Se detalla en Contente-Disposition para el navegador, que es un adjunto, y su nombre de arhivo
+            response['Content-Disposition'] = "attachment; filename=detalle_pieza.docx"
             return response          
         return HttpResponse(status=400)
 
@@ -235,5 +251,4 @@ class Tools():
                 return f"hace {int(minutes)} minuto"
         else:
             return "hace unos segundos"
-              
         
