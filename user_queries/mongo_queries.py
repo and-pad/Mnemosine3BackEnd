@@ -731,3 +731,47 @@ PIECES_ALL = [
                 }
             }
             ]
+
+def inventory_edit(_id):
+     piece_edit = [
+        {"$match": {'_id': ObjectId(_id)}},
+        {"$match": {"$expr": {"$eq": ["$deleted_at", None]}}},
+        {
+            "$lookup":{
+                "from": "genders",
+                "localField": "gender_id",
+                "foreignField": "_id",
+                "as": "gender_info"
+            }
+        },
+        {
+            "$lookup":{
+                "from": "subgenders",
+                "localField": "subgender_id",
+                "foreignField": "_id",
+                "as": "subgender_info"
+            }
+        },
+        {
+            "$lookup":{
+                "from": "catalog_elements",
+                "localField": "type_object_id",
+                "foreignField": "_id",
+                "as": "type_object_info"
+            }
+        },
+        
+        {
+            "$lookup":{
+                "from": "catalog_elements",
+                "localField": "dominant_material_id",
+                "foreignField": "_id",
+                "as": "dominant_material_info"
+            }
+        },
+        
+        
+        {"$limit": 1},
+
+     ]
+     return piece_edit

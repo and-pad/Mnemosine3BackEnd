@@ -7,8 +7,7 @@ class EmailBackend(ModelBackend):
         try:
             user = UserModel.objects.get(email=username)  # Usa email como username
         except UserModel.DoesNotExist:
-            return None
-        
+            return None        
         if user.check_password(password):
             return user
         return None

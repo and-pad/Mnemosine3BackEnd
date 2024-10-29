@@ -56,12 +56,13 @@ class Permission:
                         permissions_info[i] = overwrite_perm  # Sobrescribir
                         break
                     else:
-                        permissions_info.append(overwrite_perm)  # Agregar si no existe
+                        if overwrite_perm not in permissions_info:
+                            permissions_info.append(overwrite_perm)  # Agregar si no existe
             
             names = [perm['name'] for perm in permissions_info]
             
             #names = ['ver_usuarios', 'ver_roles', 'ver_catalogos', 'ver_configuraciones']
-            print(names)
+            #print(names)
             return names
     
 
