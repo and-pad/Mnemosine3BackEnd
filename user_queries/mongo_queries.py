@@ -564,14 +564,9 @@ PIECES_ALL = [
             
           {
     "$lookup": {
-        # El lookup de fotografías necesita de otros 'modules' para extraer el thumbnail
-        # adecuado en este caso de inventario, ya que el numero de pieza se puede repetir en otro modulo (en otra busqueda),
-        # Se busca en la colección de fotografías
         "from": "photographs",
-        # Se define la variable local para la comparación
         "let": { "piece_id": "$_id" },
         "pipeline": [
-            # Se realiza la coincidencia basada en la variable local
             {
                 "$match": {
                     "$expr": { "$eq": ["$piece_id", "$$piece_id"] }
@@ -582,7 +577,6 @@ PIECES_ALL = [
                     "$expr": { "$eq": ["$deleted_at", None] }
                 }
             },
-            # Se realiza un segundo lookup con la colección de módulos            
             {
                 "$lookup": {
                     "from": "modules",
@@ -591,18 +585,22 @@ PIECES_ALL = [
                     "as": "module_info"
                 }
             },
-            # Se filtra para obtener solo los módulos de nombre "inventario"
             {
                 "$match": {
-                    "module_info.name": "inventario"
+                    "module_info.name": "inventory"
                 }
             },
-            # Se limita el resultado a solo uno
+            # Ordenar primero por 'main_photogrphy' (de mayor a menor, para que el 1 esté primero)
             {
-                "$limit": 1 
+                "$sort": {
+                    "main_photogrphy": -1
+                }
+            },
+            # Limitar el resultado a solo 1
+            {
+                "$limit": 1
             }
         ],
-        # Se asigna el resultado al campo "photo_thumb_info"
         "as": "photo_thumb_info"
     }
 },

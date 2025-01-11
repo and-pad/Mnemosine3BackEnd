@@ -1,5 +1,6 @@
 
 # Create your views here.
+import email
 import jwt
 from django.contrib.auth.models import User
 from rest_framework import serializers
@@ -118,18 +119,54 @@ class SignupSerializer(serializers.Serializer):
     def create(self, validated_data):
         user = User.objects.create_user(**validated_data)
         return user
+    
+    
+class UserManage(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        #en esta respuesta get vamos a enviar el listado de usuarios
+        users = User.objects.all()
+        #hacer users un json, con el nombre de usuario y el email        
+        users_json = []
+        roles = [];
+        for user in users:
+            mongo = Mongo()
+            collection = mongo.connect('user_has_roles')
+            cursor = collection.find({'model_id':user.id})
+            results = list(cursor)
+            
+            for item in results:
+                collection = mongo.connect('roles')
+                cursor = collection.find_one({'id':int(item["role_id"])})
+                
+                roles = cursor["name"]                                
+                
+            users_json.append({"user":user.username, "email":user.email, "rol":roles})                    
+            
+        return Response({"users":users_json}, status=status.HTTP_200_OK)
 
 class SignupView(APIView):
-    authentication_classes = []  # Desactiva la autenticación
-    permission_classes = [AllowAny]  # Permite a cualquiera acceder a esta vista
-
+    permission_classes = [IsAuthenticated]
+    """
+    def get(self, request):
+        #en esta respuesta get vamos a enviar el listado de usuarios
+        users = User.objects.all()
+        #hacer users un json, con el nombre de usuario y el email        
+        users_json = []
+        for user in users:
+            users_json.append({"username":user.username, "email":user.email})            
+            
+        return Response({"users":users_json}, status=status.HTTP_200_OK)
+    """   
+        
     def post(self, request):
         serializer = SignupSerializer(data=request.data)
         if serializer.is_valid():
             try:
                 user = serializer.save()
             except Exception as e:
-                print("NameError occurred.")
+                print("NameError occurred. ",e)
                 return Response(
                     {"Error", str(e)}
                 )  # Responder la excepcion de que ya existe para actuar
@@ -177,6 +214,34 @@ class CheckAccesToken(APIView):
                 return Response({"time_left":time_left, "user":str(username)})
         return Response({"error":"Can not obtain the user name"})
     
-class SavePermissions():
-    pass
+class NewUser(APIView):
+    permission_classes = [IsAuthenticated]
     
+    def post(self, request):        
+        try:
+            user = request.data.get("username")
+            email = request.data.get("email")
+            password = request.data.get("password")
+            user = User.objects.create_user(username=user, email=email, password=password)
+        except Exception as e:
+            print("NameError occurred.")
+            return Response(
+                {"Error", str(e)}
+            )
+        if user:
+            return Response(
+                {"message": "Usuario creado exitosamente"},
+                status=status.HTTP_201_CREATED,
+            )
+        return Response(
+            {"message": "No se pudo crear usuario", "usuario": request.data},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+            
+            
+                
+        
+        
+    
+class SavePermissions():        
+    pass

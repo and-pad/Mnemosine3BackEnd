@@ -2,8 +2,10 @@
 import json
 import html
 import time
-import locale
-import humanize
+import random
+import string
+
+import pytz
 from bson import ObjectId
 from bson.decimal128 import Decimal128
 from rest_framework.views import APIView
@@ -17,9 +19,11 @@ from django.conf.urls.static import static
 from docxtpl import DocxTemplate, InlineImage
 from django.http import HttpResponse
 from io import BytesIO
-from datetime import datetime, timezone
+from datetime import datetime
 from docx.shared import Mm
-from rest_framework_simplejwt.authentication import JWTAuthentication
+#from rest_framework_simplejwt.authentication import JWTAuthentication
+
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 
 import sys
 import os
@@ -38,13 +42,23 @@ class UserQueryAll(APIView):
 
     def get(self, request): 
         mongo = Mongo()        
-        # collection = mongo.connect(self.dbCollection)#conectacon la base de datos y una coleccion en especifico y regresa el conector para ejecutar instrucciones                
         start = time.time()                
-        # cursor = collection.aggregate(PIECES_ALL)#la instruccion viene de mongo_queries        
+        
         search_collection = mongo.connect('pieces_search')        
-        # for document in cursor:
-            # search_collection.insert_one(document)        
+        print("verifica")
+        if not mongo.checkIfExistCollection('pieces_search'):
+            print("no existe")           
+        
+            collection = mongo.connect(self.dbCollection)#conectacon la base de datos y una coleccion en especifico y regresa el conector para ejecutar instrucciones 
+            cursor = collection.aggregate(PIECES_ALL)#la instruccion viene de mongo_queries  
+            for document in cursor:
+                search_collection.insert_one(document)  
+        
+            
+        
+                          
         cursor = search_collection.find().sort('inventory_number', 1)
+        
         documents = [doc for doc in cursor]
         json_data = json.loads(json.dumps(documents, default=str))
         duration = time.time() - start
@@ -210,7 +224,7 @@ class GenerateDetailPieceDocx(APIView):
             doc_io.seek(0)  # Mover el cursor al inicio del BytesIO   
             # Se forma la respuesta HTTP, y se le aplica el formato en este caso de word
             response = HttpResponse(doc_io, content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
-            # Se detalla en Contente-Disposition para el navegador, que es un adjunto, y su nombre de arhivo
+            # Se detalla en Content-Disposition para el navegador, que es un adjunto, y su nombre de arhivo
             response['Content-Disposition'] = "attachment; filename=detalle_pieza.docx"
             return response          
         return HttpResponse(status=400)
@@ -253,6 +267,7 @@ class Tools():
 
 class InventoryEdit(APIView):
     permission_classes = [IsAuthenticated]    
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     # authentication_classes = [JWTAuthentication]
     # En este metodo/verbo get obtenemos los datos para visualizarlos al editar
@@ -270,24 +285,26 @@ class InventoryEdit(APIView):
                            
             CollectionName = "pieces"
             piece = mongo.connect(CollectionName)
-            cursor = piece.aggregate(inventory_edit(_id))                    
-            
+            cursor = piece.aggregate(inventory_edit(_id))            
             piece_array = [doc for doc in cursor]        
             piece_json = json.loads(json.dumps(piece_array, default=str))   
-            piece_json = piece_json[0]        
+            piece_json = piece_json[0]            
             
             modules = mongo.connect('modules')
-            cursor = modules.find_one({"name":"inventory"})
-            
+            cursor = modules.find_one({"name":"inventory"})            
             module = cursor       
+            
             documents = mongo.connect('documents')
             cursor = documents.find({"module_id":module['_id'],
-                                    "piece_id":ObjectId(_id)})
+                                    "piece_id":ObjectId(_id),
+                                    "deleted_at":None})
             documents = [doc for doc in cursor]
             json_documents = json.loads(json.dumps(documents, default=str))
+            print("json_documents",json_documents)
             photographs = mongo.connect("photographs")
             cursor = photographs.find({"module_id": module['_id'],
-                                    "piece_id":ObjectId(_id)})
+                                    "piece_id":ObjectId(_id),
+                                     "deleted_at": None})
             photographs = [doc for doc in cursor]
             json_pics = json.loads(json.dumps(photographs, default=str))
             
@@ -299,14 +316,42 @@ class InventoryEdit(APIView):
             subgenders = mongo.connect("subgenders")
             cursor = subgenders.find({"deleted_at":{"$eq": None}}).sort("title", 1)
             subgenders = [doc for doc in cursor]
-            json_subgenders = json.loads(json.dumps(subgenders, default=str))        
+            json_subgenders = json.loads(json.dumps(subgenders, default=str)) 
+            
+            object_type = mongo.connect("catalogs")
+            cursor = object_type.find_one({"code": "object_type"})
+            
+            if cursor is not None:
+                
+                print("idObj", cursor["_id"])
+                
+                type_object_id = cursor["_id"]
+                catalog_elements = mongo.connect("catalog_elements")
+                cursor = catalog_elements.find({"catalog_id":ObjectId(type_object_id)})
+                catalog_elements = [{"_id": doc["_id"], "title": doc["title"]} for doc in cursor]
+                json_type_object = json.loads(json.dumps(catalog_elements, default=str))
+                
+            dominant_material = mongo.connect("catalogs")    
+            cursor = dominant_material.find_one({"code":"dominant_material"})
+            
+            if cursor is not None:
+                print("cur",cursor)
+                dominant_material_id = cursor["_id"]
+                catalog_elements = mongo.connect("catalog_elements")
+                cursor = catalog_elements.find({"catalog_id":ObjectId(dominant_material_id)})
+                catalog_elements = [{"_id": doc["_id"], "title": doc["title"]} for doc in cursor]
+                json_dominant_material = json.loads(json.dumps(catalog_elements, default=str))
+                           
             
             response_data = {
                 "piece": piece_json,
                 "documents": json_documents,
                 "pics": json_pics,
                 "genders": json_genders,
-                "subgenders": json_subgenders
+                "subgenders": json_subgenders,
+                "type_object": json_type_object,
+                "dominant_material": json_dominant_material,
+                 
             }
                     
             return Response(response_data, status=status.HTTP_200_OK)
@@ -325,20 +370,48 @@ class InventoryEdit(APIView):
                 data_to_approval = {}
                 exclusions = {"created_at", "updated_at", "created_by", "_id", "approved_rejected_by", "approved_rejected"}                
                 # Iteramos sobre cada clave-valor en `cursor_change`
+                data_in_object = {"gender", "subgender"}
+                
                 for key, item in cursor_change.items():                    
                     # Filtramos las claves que queremos excluir
                     if key not in exclusions:
-                        data_to_approval[key] = item
                         
+                        if key in data_in_object:
+                            
+                            data_to_approval[key] = {
+                                "oldValue": item["oldValue"]["title"],
+                                "newValue": item["newValue"]["title"]                                
+                            }
+                                                        
+                        else:
+                        
+                            data_to_approval[key] = item
+                        
+                        
+                        
+                
+                
+                data_to_approval["changes"] = True
                 json_to_approval = json.loads(json.dumps(data_to_approval, default=str))
                 return Response(json_to_approval, status=status.HTTP_200_OK)            
             else:
                 return Response("You have not permission to approve", status=status.HTTP_401_UNAUTHORIZED)
+            
+            
+    def generate_random_file(self, original_filename, length=40):
+        #print("original_filename",original_filename)
+        _, extension = os.path.splitext(original_filename)
+        
+        # Generar un nombre aleatorio con letras mayúsculas, minúsculas y números
+        random_name = ''.join(random.choices(string.ascii_letters + string.digits, k=length))
+    
+        # Devolver el nuevo nombre con la extensión original
+        return f"{random_name}{extension}"
                         
-    # Este metodo lo vamos a utilizar para crear la colección de revisión
+    # Este metodo lo utilizamos para crear la colección de revisión
     # ya que en este sistema las modificaciones pasan primero por una inspección
-    # si se acepta la modificacion esta se recibira en patch
-    def post(self, request, _id):
+    # si se acepta la modificacion esta se recibira en put
+    def post(self, request, _id, *args, **kwargs):
         
         user_id = request.user.id
         
@@ -347,11 +420,70 @@ class InventoryEdit(APIView):
         # piece_search = mongo.connect("pieces_search")        
         cursor = piece.find_one({"_id":ObjectId(_id)})
         print(cursor)
-        changes = request.data.get("changes")
+        changes = json.loads(request.data.get("changes", {}))
+        #changes = json.loads(changes)
+        print("changes",changes);
+        
+        changes_pics_info = json.loads(request.data.get("changes_pics_inputs", {}))        
+        #changes_pics_info = json.loads(changes_pics_info)        
+        for key, value in changes_pics_info.items():
+            # Asegúrate de que `_id` sea una cadena antes de convertirla
+            if '_id' in value and isinstance(value['_id'], str):
+                value['_id'] = ObjectId(value['_id'])
+
+        print(changes_pics_info)
+        
+        changed_pics = json.loads(request.data.get("changed_pics", "{}"))
+        
+        print("changed_pics",changed_pics)
+        saved_files = []
+        file_names = {}
+        for key, meta in changed_pics.items():
+            file = request.FILES.get(f"files[{key}]")  # Obtener archivo cargado
+            if file:
+                print("si hubo ")
+                # Guardar el archivo en el sistema o base de datos según sea necesario
+                # Ejemplo de guardar en una carpeta local
+                try:
+                    filename = self.generate_random_file(file.name)     
+                    file_names[key] = filename
+                    file_path = f"{settings.TEMPORARY_UPLOAD_DIRECTORY}{filename}"
+                    with open(file_path, "wb") as f:
+                        for chunk in file.chunks():
+                            f.write(chunk)
+
+                    # Guardar metadatos en una lista
+                    saved_files.append({      
+                        "key":key,              
+                        "_id": ObjectId(meta["_id"]),                    
+                        "file_name": filename,
+                        "size": file.size,
+                        "mime_type":file.content_type
+                    })
+                except Exception as e:
+                    print(f"Error: is not posible to create the file ", e)
+                
+        print("Saved files:", saved_files)
+        
         InventoryChanges = mongo.connect("inventory_change_approvals")
-        if isinstance(changes, dict):
+        if (changes and isinstance(changes, dict)) or (changes_pics_info and isinstance(changes_pics_info, dict)) or (changed_pics and isinstance(changed_pics, dict)):
             
-            timestamps = AuditManager()
+            timestamps = AuditManager()                         
+             
+              # Combinar los diccionarios
+            if changes_pics_info and isinstance(changes_pics_info, dict):
+                               
+                changes.update({"changed_pics_info":changes_pics_info})  # Agregar los campos de changes_pics_info a changes
+                print("changes_update", changes)
+            
+            if changed_pics and isinstance(changed_pics, dict):
+                for item in saved_files:
+                    print("item",item["key"])
+                    
+                    changes.setdefault("changed_pics", []).append(item)                    
+                    
+                print("changes_pics", changes)  # Agregar los campos de changed_pics a changes             
+             
             timestamped_changes = timestamps.add_timestamps(changes)
             timestamped_changes = timestamps.add_approvalInfo(timestamped_changes, user_id, _id)
             InventoryChanges.insert_one(timestamped_changes)
@@ -361,48 +493,88 @@ class InventoryEdit(APIView):
                 
         else:
             print("El valor de 'changes' no es un diccionario.")
-                
-        gender_id = request.data.get("gender")
-        print("gender_id", gender_id)
-        print(changes)
-        print(_id)
+        
+        if isinstance(changes_pics_info, dict):
+            
+            print(changes_pics_info)
+            
+        #gender_id = request.data.get("gender")       
+        """
         for item in request.data:
             print(item)
             print(request.data.get(item))
-            
+        """ 
         return Response("is ok", status=status.HTTP_200_OK)
         
     def put(self, request, _id):
         
         user_id = request.user.id
         
-        Pieces_one = PIECES_ALL        
-        Pieces_one.insert(0, { "$match": { "_id": _id } })        
-        
         mongo = Mongo()
-        piece = mongo.connect("pieces")
-        cursor = piece.aggregate(Pieces_one)        
-        documents = None
-        
-        if cursor:
-            for document in cursor:
-                search_collection.insert_one(document)           
+       
+        changes = mongo.connect("inventory_change_approvals")        
+        cursor_change = changes.find_one({"piece_id":ObjectId(_id),"approved_rejected":None})        
+        exclusions = {"created_at", "updated_at", "created_by", "_id", "piece_id", "approved_rejected_by", "approved_rejected"} 
+        id_change_fields = {"gender_id", "subgender_id",""}
+       
+        if cursor_change is not None:
+            data_to_save = {}
+            for key, item in cursor_change.items():                    
+                # Filtramos las claves que queremos excluir                                                           
+                if key not in exclusions:
+                    
+                    if key in id_change_fields:                        
+                        data_to_save[key] = ObjectId(item["newValue"]["_id"])
+                    else:                        
+                        
+                        data_to_save[key] = item["newValue"]                        
+                                      
+            #print(data_to_save)                
+            try:
+                is_approved = request.data.get("isApproved")
+                print(is_approved)
+                piece = mongo.connect("pieces")
+                pieceStateBeforeChanges = piece.find_one({"_id":ObjectId(_id)})
+                if is_approved:
+                    cursor_piece = piece.update_one({"_id":ObjectId(_id)},
+                                    {"$set": data_to_save})
+                    if cursor_piece.matched_count > 0:
+                        
+                        pieces_search = mongo.connect("pieces_search")        
+                        Pieces_one = PIECES_ALL        
+                        Pieces_one.insert(0, { "$match": { "_id": ObjectId(_id) } }) 
+                        #print("Pieces_one",Pieces_one)       
+                        cursor = piece.aggregate(Pieces_one)
+                        print("cursor",cursor)
+                        for document in cursor:
+                            print("document",document)
+                            pieces_search.replace_one({'_id': ObjectId(_id)}, document)
+                    
+                    result = changes.update_one({"piece_id": ObjectId(_id),"approved_rejected": None},
+                                    {"$set": {"approved_rejected_by":user_id,"approved_rejected": "approved"},
+                                     "$push": {"piece_before_changes":pieceStateBeforeChanges}})
+                    if result.modified_count > 0:
+                        return Response("piece updated", status=status.HTTP_200_OK)     
+                else:
+                    result =changes.update_one({"piece_id": ObjectId(_id),"approved_rejected": None},
+                                    {"$set": {"approved_rejected_by":user_id,"approved_rejected": "rejected"}})
+                    if result.modified_count > 0:
+                        return Response("piece rejected", status=status.HTTP_200_OK)                      
+                                            
                 
-        mongo.connect("pieces_search")
-        
-        print(request._id)
-        
-        return Response("is ok", status=status.HTTP_200_OK)
+            except Exception as e:
+                return Response(str(e), status=status.HTTP_400_BAD_REQUEST)        
     
     def patch(self, request):
         pass        
         
         
 class AuditManager(): 
+    mexico_tz = pytz.timezone('America/Mexico_City')
 
     def add_timestamps(self, object):
-        object['created_at'] = datetime.now(timezone.utc)
-        object['updated_at'] = datetime.now(timezone.utc)        
+        object['created_at'] = datetime.now(self.mexico_tz)
+        object['updated_at'] = datetime.now(self.mexico_tz)        
         return object
     
     def add_approvalInfo(self, object, user_id, _id):
