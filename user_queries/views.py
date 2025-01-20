@@ -1,10 +1,14 @@
-# imports
+# Librerías estándar
+import os
 import json
 import html
 import time
 import random
 import string
+from io import BytesIO
+from datetime import datetime
 
+# Librerías de terceros
 import pytz
 from bson import ObjectId
 from bson.decimal128 import Decimal128
@@ -12,27 +16,19 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
-from .driver_database.mongo import Mongo
-from .mongo_queries import *  # PIECES_ALL, PIECE_DETAIL
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django.conf import settings
 from django.conf.urls.static import static
+from django.http import HttpResponse  
+
 from docxtpl import DocxTemplate, InlineImage
-from django.http import HttpResponse
-from io import BytesIO
-from datetime import datetime
 from docx.shared import Mm
-#from rest_framework_simplejwt.authentication import JWTAuthentication
 
-from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
-
-import sys
-import os
-
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# Módulos locales
+from .driver_database.mongo import Mongo
+from .mongo_queries import PIECES_ALL, MODULES, pieceDetail, inventory_edit
 from authentication.mongo_queries import getPermissions
 from authentication.views import Permission
-
-# from bson.json_util import dumps
 
 
 class UserQueryAll(APIView): 
@@ -98,7 +94,7 @@ class UserQueryDetail(APIView):
             }
             return Response(response_data, status=status.HTTP_200_OK)
         else:
-            return Response({'error': 'Piece not found'}, status=status.HTTP_404_NOT_FOUND)
+            return Response({'error': 'Pieces not found'}, status=status.HTTP_404_NOT_FOUND)
 
     
 class GenerateDetailPieceDocx(APIView):
@@ -386,11 +382,7 @@ class InventoryEdit(APIView):
                         else:
                         
                             data_to_approval[key] = item
-                        
-                        
-                        
-                
-                
+                                            
                 data_to_approval["changes"] = True
                 json_to_approval = json.loads(json.dumps(data_to_approval, default=str))
                 return Response(json_to_approval, status=status.HTTP_200_OK)            
@@ -411,7 +403,7 @@ class InventoryEdit(APIView):
     # Este metodo lo utilizamos para crear la colección de revisión
     # ya que en este sistema las modificaciones pasan primero por una inspección
     # si se acepta la modificacion esta se recibira en put
-    def post(self, request, _id, *args, **kwargs):
+    def post(self, request, _id ):
         
         user_id = request.user.id
         
@@ -584,4 +576,4 @@ class AuditManager():
         object['approved_rejected'] = None
         return object
         
-        
+    

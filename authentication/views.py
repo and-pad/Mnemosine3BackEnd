@@ -1,6 +1,5 @@
-
 # Create your views here.
-import email
+from wsgiref.handlers import format_date_time
 import jwt
 from django.contrib.auth.models import User
 from rest_framework import serializers
@@ -12,12 +11,10 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.permissions import IsAuthenticated
 from django.contrib.auth import authenticate
 from rest_framework_simplejwt.authentication import JWTAuthentication
-
+from django.shortcuts import get_object_or_404
 from .mongo_queries import getPermissions
-
 from time import time
-from user_queries.driver_database.mongo import Mongo    
-
+from user_queries.driver_database.mongo import Mongo
 
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
@@ -109,62 +106,192 @@ class signinView(APIView):
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-        return Response({"access": access_token, "user": user.username, "user_permissions":user_permissions}, status=status.HTTP_200_OK)
+        return Response({"access": access_token, "user": user.username, "user_permissions": user_permissions}, status=status.HTTP_200_OK)
     
 class SignupSerializer(serializers.Serializer):
     username = serializers.CharField(max_length=150)
     password = serializers.CharField(write_only=True)
     email = serializers.EmailField()
+    id = serializers.IntegerField()
 
     def create(self, validated_data):
         user = User.objects.create_user(**validated_data)
         return user
+
+class InactiveUser(APIView):
+    permission_classes = [IsAuthenticated]
     
+    def patch(self, request):
+        
+        try:
+            userId= request.data.get("user_id")
+            print(userId)
+            user = get_object_or_404(User, id=userId)
+            user.is_active = False
+            user.save()
+            return Response({"response":"record_changed"}, status=status.HTTP_202_ACCEPTED)
+        except Exception as e:            
+            return Response({"error":str(e)}, status=status.HTTP_400_BAD_REQUEST)    
+        
+class ActivateUser(APIView):
     
+    permission_classes = [IsAuthenticated]
+    
+    def patch(self, request):
+        
+        try:
+            userId= request.data.get("user_id")
+            print(userId)
+            user = get_object_or_404(User, id=userId)
+            user.is_active = True
+            user.save()
+            return Response({"response":"record_changed"}, status=status.HTTP_202_ACCEPTED)
+        except Exception as e:            
+            return Response({"error":str(e)}, status=status.HTTP_400_BAD_REQUEST)    
+    
+        
+        
+        
+        
 class UserManage(APIView):
     permission_classes = [IsAuthenticated]
     
     def get(self, request):
-        #en esta respuesta get vamos a enviar el listado de usuarios
-        users = User.objects.all()
-        #hacer users un json, con el nombre de usuario y el email        
-        users_json = []
-        roles = [];
-        for user in users:
-            mongo = Mongo()
-            collection = mongo.connect('user_has_roles')
-            cursor = collection.find({'model_id':user.id})
-            results = list(cursor)
-            
-            for item in results:
-                collection = mongo.connect('roles')
-                cursor = collection.find_one({'id':int(item["role_id"])})
-                
-                roles = cursor["name"]                                
-                
-            users_json.append({"user":user.username, "email":user.email, "rol":roles})                    
-            
-        return Response({"users":users_json}, status=status.HTTP_200_OK)
+        # Obtén todos los usuarios
+        all_users = User.objects.all()
+        # Filtra los usuarios activos e inactivos
+        users_active = [
+            {'id': user.id, 'username': user.username, 'email': user.email}
+            for user in all_users if user.is_active
+        ]
+        print (users_active)
+        users_inactive = [
+            {'id': user.id, 'username': user.username, 'email': user.email}
+            for user in all_users if not user.is_active
+        ]
+        # Convertir usuarios a JSON
+        users_active_json = []
+        users_inactive_json = []
+        mongo = Mongo()
+        # Procesar usuarios activos
+        for user in users_active:
+            user_id = user.get("id")
+            roles = []
+            if user_id is not None:
+                # Consulta en MongoDB
+                collection = mongo.connect('user_has_roles')
+                cursor = collection.find({'model_id': int(user_id)})
+                results = list(cursor)
+                if(user_id==65):
+                    print("results",results)
+                for item in results:
+                    collection = mongo.connect('roles')
+                    role_data = collection.find_one({'id': int(item["role_id"])})
+                    if role_data:
+                        roles.append(role_data.get("name", "Unknown"))
+
+                # Agregar al JSON de usuarios activos
+                users_active_json.append({
+                    "user": user.get("username", ""),
+                    "email": user.get("email", ""),
+                    "rol": roles,
+                    "_id": user_id
+                })
+                if(user_id==65):
+                    print("resultsds",users_active_json)
+
+        # Procesar usuarios inactivos
+        for user in users_inactive:
+            user_id = user.get("id")
+            roles = []
+            deletable = True
+            if user_id is not None:
+                # Consulta en MongoDB
+                collection = mongo.connect('user_has_roles')
+                cursor = collection.find({'model_id': int(user_id)})
+                results = list(cursor)
+
+                for item in results:
+                    collection = mongo.connect('roles')
+                    role_data = collection.find_one({'id': int(item["role_id"])})
+                    if role_data:
+                        roles.append(role_data.get("name", "Unknown"))
+
+                deletable = not mongo.searchUserInCollections(user_id)
+
+            # Agregar al JSON de usuarios inactivos
+            users_inactive_json.append({
+                "user": user.get("username", ""),
+                "email": user.get("email", ""),
+                "rol": roles,
+                "_id": user_id,
+                "deletable": deletable
+            })
+
+        roles = mongo.connect('roles')
+        roles = list(roles.find())
+        #aparte de el name del rol tambien obtener el id
+        roles = [{"name": role.get("name"), "id": role.get("id")} for role in roles]
+        
+        
+        # Responder con los datos procesados
+        return Response(
+            {"users_active": users_active_json, "users_inactive": users_inactive_json , "roles": roles},
+            status=status.HTTP_200_OK
+        )
+
 
 class SignupView(APIView):
     permission_classes = [IsAuthenticated]
-    """
-    def get(self, request):
-        #en esta respuesta get vamos a enviar el listado de usuarios
-        users = User.objects.all()
-        #hacer users un json, con el nombre de usuario y el email        
-        users_json = []
-        for user in users:
-            users_json.append({"username":user.username, "email":user.email})            
-            
-        return Response({"users":users_json}, status=status.HTTP_200_OK)
-    """   
+  
         
     def post(self, request):
-        serializer = SignupSerializer(data=request.data)
+        print("si ocurre");
+        print(request.data)
+        # Extraer los datos del campo 'formData'
+        form_data = request.data.get('formData', {})
+
+        # Mapear los campos a los requeridos por el serializer
+        mongo = Mongo()
+        collection = mongo.connect("auth_user")
+        #en auth_user hay una objeto que tiene el nombre max_count_id, filtrarlo por nombre y luego aumentarle 1        
+        cursor = collection.find_one({"max_count_id": {"$exists": True}})
+        
+        if cursor:
+            # Extraer el valor actual de "max_count_id"
+            current_value = cursor.get("max_count_id", 0)  # Si el campo no existe, toma 0 como valor por defecto
+            
+            # Sumar 1 al valor
+            new_value = current_value + 1
+            
+        
+        formatted_data = {
+            'username': form_data.get('name', ''),  # Convertir 'name' a 'username'
+            'password': form_data.get('password', ''),
+            'email': form_data.get('email', ''),
+            "id": new_value
+        }
+        
+
+        # Validar y guardar los datos con el serializer
+        serializer = SignupSerializer(data=formatted_data)
+
         if serializer.is_valid():
             try:
                 user = serializer.save()
+                collection.update_one(
+                    {"_id": cursor["_id"]},  # Condición para encontrar el documento por su ID
+                    {"$set": {"max_count_id": new_value}}  # Actualización del campo
+                )
+                
+                collection = mongo.connect("user_has_roles")
+                # Crear un documento en la colección user_has_roles
+                collection.insert_one(
+                    {
+                        "model_id": new_value,
+                        "role_id": int(form_data.get("role", 0))
+                    }
+                )
             except Exception as e:
                 print("NameError occurred. ",e)
                 return Response(
@@ -173,7 +300,7 @@ class SignupView(APIView):
 
             if user:
                 return Response(
-                    {"message": "Usuario creado exitosamente"},
+                    {"message": "new_user_added"},
                     status=status.HTTP_201_CREATED,
                 )
 
@@ -214,34 +341,8 @@ class CheckAccesToken(APIView):
                 return Response({"time_left":time_left, "user":str(username)})
         return Response({"error":"Can not obtain the user name"})
     
-class NewUser(APIView):
-    permission_classes = [IsAuthenticated]
-    
-    def post(self, request):        
-        try:
-            user = request.data.get("username")
-            email = request.data.get("email")
-            password = request.data.get("password")
-            user = User.objects.create_user(username=user, email=email, password=password)
-        except Exception as e:
-            print("NameError occurred.")
-            return Response(
-                {"Error", str(e)}
-            )
-        if user:
-            return Response(
-                {"message": "Usuario creado exitosamente"},
-                status=status.HTTP_201_CREATED,
-            )
-        return Response(
-            {"message": "No se pudo crear usuario", "usuario": request.data},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-            
-            
-                
-        
-        
-    
+
 class SavePermissions():        
     pass
+
+
