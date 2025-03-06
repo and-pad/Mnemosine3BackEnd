@@ -30,7 +30,7 @@ from docx.shared import Mm
 
 # Módulos locales
 from .driver_database.mongo import Mongo
-from .mongo_queries import PIECES_ALL, MODULES, pieceDetail, inventory_edit
+from .mongo_queries import PIECES_ALL, MODULES, pieceDetail, inventory_edit, research_edit
 from authentication.mongo_queries import getPermissions
 from authentication.views import Permission
 
@@ -1093,22 +1093,28 @@ class InventoryEdit(APIView):
             )
 
 class ResearchEdit(APIView):
+    
+    def get_module_id(self, module_name, mongo):
+        cursor = mongo.connect("modules")
+        module = cursor.find_one({"name": module_name})
+        return module["_id"]
     def get(self, request, _id):
-        mongo = Mongo()
+        mongo = Mongo()    
         
-        """
-        researchChngapprov = mongo.connect("researchs_changes")
-        cursor_change = researchChngapprov.find_one(
-            {"piece_id": ObjectId(_id) }
-            
-        )
-        """
-        research = mongo.connect("researchs")
-        cursor_change = research.find_one(
-            {"piece_id": ObjectId(_id) }            
-        )
-        if cursor_change:
-            cursor_change_json = json.loads(json.dumps(cursor_change, default=str))
+        module_id = self.get_module_id("research", mongo)
+
+        
+        cursor = mongo.connect("researchs")
+        research = cursor.aggregate(research_edit(module_id, _id))
+        research = list(research)
+        
+        print("research", research)
+        
+        if research:
+            cursor_change_json = json.loads(json.dumps(research, default=str))
+            cursor_change_json = cursor_change_json[0]
+          
+            print("cursor_change_json", cursor_change_json)
             return Response(cursor_change_json, status=status.HTTP_200_OK)
         else:
             return Response({"response": "No se encontraron registros"}, status=status.HTTP_400_BAD_REQUEST)
