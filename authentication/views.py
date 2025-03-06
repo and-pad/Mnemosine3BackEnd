@@ -1,4 +1,5 @@
 # Create your views here.
+from math import e
 from wsgiref.handlers import format_date_time
 import jwt
 from django.contrib.auth.models import User
@@ -122,7 +123,7 @@ class InactiveUser(APIView):
     permission_classes = [IsAuthenticated]
     
     def patch(self, request):
-        
+        print("inactive api")
         try:
             userId= request.data.get("user_id")
             print(userId)
@@ -151,7 +152,71 @@ class ActivateUser(APIView):
     
         
         
+class EditUser(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def patch(self, request):
+        try:
+            
+           
+            data = request.data.get("formDataChange")
+            userId= data.get("user_id")                        
+            user = User.objects.get(id=userId)
+            user.username = data.get("user")
+            user.email = data.get("email")
+            password = data.get("password")
+            rol_name = data.get("rol")
+            rol_id = data.get("rol_id")
+            
+            mongo = Mongo()
+            
+            collection_check = mongo.connect('user_has_roles')
+            cursor = collection_check.find_one({'model_id': int(userId)})
+            print(userId)
+            if cursor.get("role_id") != rol_id:
+                print("entro")   
+                collectionRoles = mongo.connect('roles')
+                cursor = collectionRoles.find_one({'id': int(rol_id) } )
+                if cursor.get("name") == rol_name:
+                    print("entro2")
+                    collection = mongo.connect('user_has_roles')
+                    cursor = collection.update_one(
+                        {"model_id": int(userId)},
+                        {"$set": {"role_id": int(rol_id)}}
+                    )
+                else:
+                    return Response({"error":"El rol no coincide con el id"}, status=status.HTTP_400_BAD_REQUEST)
+                            
+            
+            if password:
+                user.set_password(password)
+            user.save()
+            return Response({"response":"user_updated"}, status=status.HTTP_202_ACCEPTED)
         
+        except Exception as e:
+            return Response({"error":str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            
+class DeleteUser(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def delete(self, request):
+        try:
+            userId= request.data.get("user_id")
+            user = User.objects.get(id=userId)
+            mongo = Mongo()
+            collection = mongo.connect('deleted_auth_users')
+            collection.insert_one(
+                {
+                    "username": user.username,
+                    "email": user.email,
+                    "id": user.id
+                }
+            )
+            
+            user.delete()
+            return Response({"response":"record_deleted"}, status=status.HTTP_202_ACCEPTED)
+        except Exception as e:
+            return Response({"error":str(e)}, status=status.HTTP_400_BAD_REQUEST)
         
 class UserManage(APIView):
     permission_classes = [IsAuthenticated]
@@ -164,11 +229,12 @@ class UserManage(APIView):
             {'id': user.id, 'username': user.username, 'email': user.email}
             for user in all_users if user.is_active
         ]
-        print (users_active)
+        #print (users_active)
         users_inactive = [
             {'id': user.id, 'username': user.username, 'email': user.email}
             for user in all_users if not user.is_active
         ]
+        #print("users_inactivesss",users_inactive)
         # Convertir usuarios a JSON
         users_active_json = []
         users_inactive_json = []
@@ -177,33 +243,32 @@ class UserManage(APIView):
         for user in users_active:
             user_id = user.get("id")
             roles = []
+            rolesId = []
             if user_id is not None:
                 # Consulta en MongoDB
                 collection = mongo.connect('user_has_roles')
                 cursor = collection.find({'model_id': int(user_id)})
                 results = list(cursor)
-                if(user_id==65):
-                    print("results",results)
+                
                 for item in results:
                     collection = mongo.connect('roles')
                     role_data = collection.find_one({'id': int(item["role_id"])})
-                    if role_data:
-                        roles.append(role_data.get("name", "Unknown"))
-
+                    roles.append(role_data.get("name", "Unknown"))
+                    rolesId.append({"name":role_data.get("name","unknown") ,"id":role_data.get("id", "Unknown")})
                 # Agregar al JSON de usuarios activos
                 users_active_json.append({
                     "user": user.get("username", ""),
                     "email": user.get("email", ""),
                     "rol": roles,
+                    "rol_w_id": rolesId,
                     "_id": user_id
                 })
-                if(user_id==65):
-                    print("resultsds",users_active_json)
-
+                
         # Procesar usuarios inactivos
         for user in users_inactive:
             user_id = user.get("id")
             roles = []
+            rolesId = []
             deletable = True
             if user_id is not None:
                 # Consulta en MongoDB
@@ -216,27 +281,29 @@ class UserManage(APIView):
                     role_data = collection.find_one({'id': int(item["role_id"])})
                     if role_data:
                         roles.append(role_data.get("name", "Unknown"))
-
+                       
                 deletable = not mongo.searchUserInCollections(user_id)
 
             # Agregar al JSON de usuarios inactivos
-            users_inactive_json.append({
-                "user": user.get("username", ""),
-                "email": user.get("email", ""),
-                "rol": roles,
-                "_id": user_id,
-                "deletable": deletable
-            })
+            if user_id is not None:
+                users_inactive_json.append({
+                    "user": user.get("username", ""),
+                    "email": user.get("email", ""),
+                    "rol": roles,
+                    "_id": user_id,
+                    "deletable": deletable
+                })
 
         roles = mongo.connect('roles')
         roles = list(roles.find())
         #aparte de el name del rol tambien obtener el id
         roles = [{"name": role.get("name"), "id": role.get("id")} for role in roles]
+        roles_id = [{"name": role.get("name")} for role in roles]
         
-        
+        #print("users_inactive",users_inactive_json)
         # Responder con los datos procesados
         return Response(
-            {"users_active": users_active_json, "users_inactive": users_inactive_json , "roles": roles},
+            {"users_active": users_active_json, "users_inactive": users_inactive_json , "roles": roles,"roles_id": roles_id},
             status=status.HTTP_200_OK
         )
 
@@ -247,16 +314,16 @@ class SignupView(APIView):
         
     def post(self, request):
         print("si ocurre");
-        print(request.data)
+        #print(request.data)
         # Extraer los datos del campo 'formData'
         form_data = request.data.get('formData', {})
-
+        print("form_data",form_data)
         # Mapear los campos a los requeridos por el serializer
         mongo = Mongo()
         collection = mongo.connect("auth_user")
         #en auth_user hay una objeto que tiene el nombre max_count_id, filtrarlo por nombre y luego aumentarle 1        
         cursor = collection.find_one({"max_count_id": {"$exists": True}})
-        
+        print(cursor)
         if cursor:
             # Extraer el valor actual de "max_count_id"
             current_value = cursor.get("max_count_id", 0)  # Si el campo no existe, toma 0 como valor por defecto
@@ -266,13 +333,13 @@ class SignupView(APIView):
             
         
         formatted_data = {
-            'username': form_data.get('name', ''),  # Convertir 'name' a 'username'
-            'password': form_data.get('password', ''),
-            'email': form_data.get('email', ''),
+            'username': form_data.get('NewName', ''),  # Convertir 'name' a 'username'
+            'password': form_data.get('newPassword', ''),
+            'email': form_data.get('NewEmail', ''),
             "id": new_value
         }
         
-
+        print("formated_data",formatted_data)
         # Validar y guardar los datos con el serializer
         serializer = SignupSerializer(data=formatted_data)
 
