@@ -1,6 +1,7 @@
 # Librerías estándar
 import os
 import json
+import orjson
 import html
 import re
 from sys import audit
@@ -34,7 +35,7 @@ from .mongo_queries import PIECES_ALL, MODULES, pieceDetail, inventory_edit, res
 from authentication.mongo_queries import getPermissions
 from authentication.views import Permission
 
-from user_queries.driver_database import mongo
+#from user_queries.driver_database import mongo
 
 
 class UserQueryAll(APIView):
@@ -42,33 +43,41 @@ class UserQueryAll(APIView):
     dbCollection = "pieces"
     dbCollectionPics = "photographs"
 
+    def serialize_value(self, value):
+        if isinstance(value, ObjectId):
+            return str(value)
+        elif isinstance(value, Decimal128):
+            return float(value.to_decimal())
+        elif isinstance(value, datetime):
+            return value.isoformat()
+        return value
+
+    def bson_to_json_serializable(self, doc):
+        if isinstance(doc, dict):
+            return {k: self.serialize_value(v) for k, v in doc.items()}
+        elif isinstance(doc, list):
+            return [self.serialize_value(v) for v in doc]
+        return self.serialize_value(doc)
+
     def get(self, request):
         mongo = Mongo()
-        start = time.time()
-
-        search_collection = mongo.connect("pieces_search")
-        print("verifica")
+        db = mongo
+        time = datetime.now()
         if not mongo.checkIfExistCollection("pieces_search"):
-            print("no existe")
+            collection = db[self.dbCollection]
+            cursor = collection.aggregate(PIECES_ALL)
+            db.connect("pieces_search").insert_many(cursor)
 
-            collection = mongo.connect(
-                self.dbCollection
-            )  # conectacon la base de datos y una coleccion en especifico y regresa el conector para ejecutar instrucciones
-            cursor = collection.aggregate(
-                PIECES_ALL
-            )  # la instruccion viene de mongo_queries
-            for document in cursor:
-                search_collection.insert_one(document)
+        if not mongo.checkIfExistCollection("pieces_search_serialized"):
+            cursor = db.connect("pieces_search").find().sort("inventory_number", 1)
+            documents = [self.bson_to_json_serializable(doc) for doc in cursor]
+            db.connect("pieces_search_serialized").insert_many(documents)
 
-        cursor = search_collection.find().sort("inventory_number", 1)
+        serialized_json_data = db.connect("pieces_search_serialized").find().sort("inventory_number", 1)
+        documents = [self.bson_to_json_serializable(doc) for doc in serialized_json_data]
+        time_end = datetime.now()-time
 
-        documents = [doc for doc in cursor]
-        json_data = json.loads(json.dumps(documents, default=str))
-        duration = time.time() - start
-        return Response(
-            {"query_duration": duration, "query": json_data},
-            status=status.HTTP_202_ACCEPTED,
-        )
+        return Response({"query": documents, "query_duration": time_end}, status=status.HTTP_202_ACCEPTED)
 
 
 class UserQueryDetail(APIView):

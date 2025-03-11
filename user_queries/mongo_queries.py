@@ -3,6 +3,7 @@ from bson import ObjectId
 MODULES = {"deleted_at": None}
 
 
+
 def pieceDetail(_id):
     PIECE_DETAIL = [
         {"$match": {"_id": ObjectId(_id)}},
@@ -768,8 +769,7 @@ PIECES_ALL = [
             },
         }
     },
-]
-
+] 
 
 def inventory_edit(_id):
     piece_edit = [
@@ -810,7 +810,6 @@ def inventory_edit(_id):
         {"$limit": 1},
     ]
     return piece_edit
-
 
 def research_edit(module_id, _id):
 
