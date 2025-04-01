@@ -1,12 +1,9 @@
 # Librerías estándar
 import os
 import json
-import orjson
+#import orjson
 import html
-import re
-from sys import audit
-import sys
-import time
+
 import random
 import string
 from io import BytesIO
@@ -28,14 +25,21 @@ from django.http import HttpResponse
 from PIL import Image
 from docxtpl import DocxTemplate, InlineImage
 from docx.shared import Mm
+from time import sleep
 
 # Módulos locales
 from .driver_database.mongo import Mongo
-from .mongo_queries import PIECES_ALL, MODULES, pieceDetail, inventory_edit, research_edit
+from .mongo_queries import (
+    PIECES_ALL,
+    MODULES,
+    pieceDetail,
+    inventory_edit,
+    research_edit,
+)
 from authentication.mongo_queries import getPermissions
 from authentication.views import Permission
 
-#from user_queries.driver_database import mongo
+# from user_queries.driver_database import mongo
 
 
 class UserQueryAll(APIView):
@@ -43,51 +47,98 @@ class UserQueryAll(APIView):
     dbCollection = "pieces"
     dbCollectionPics = "photographs"
 
-    def serialize_value(self, value):
-        if isinstance(value, ObjectId):
-            return str(value)
-        elif isinstance(value, Decimal128):
-            return float(value.to_decimal())
-        elif isinstance(value, datetime):
-            return value.isoformat()
-        return value
-
     def bson_to_json_serializable(self, doc):
-        if isinstance(doc, dict):
-            return {k: self.serialize_value(v) for k, v in doc.items()}
+        """Convierte ObjectId, Decimal128 y datetime a tipos serializables."""
+        if isinstance(doc, ObjectId):
+            return str(doc)  # Convierte ObjectId a string
+        elif isinstance(doc, Decimal128):
+            return float(doc.to_decimal())  # Convierte Decimal128 a float
+        elif isinstance(doc, datetime):
+            return doc.isoformat()  # Convierte datetime a formato ISO 8601
+        elif isinstance(doc, dict):
+            return {
+                k: self.bson_to_json_serializable(v) for k, v in doc.items()
+            }  # Recorre el diccionario
         elif isinstance(doc, list):
-            return [self.serialize_value(v) for v in doc]
-        return self.serialize_value(doc)
+            return [self.bson_to_json_serializable(v) for v in doc]  # Recorre la lista
+        else:
+            return doc  # Retorna el valor sin cambios si ya es serializable
 
-    def get(self, request):
+    def generate_unique_code_version(self, length=120):
+        alphabet = string.ascii_letters + string.digits
+        return "".join(random.choices(alphabet, k=length))
+
+    def get(self, request, _code):
         mongo = Mongo()
         db = mongo
         time = datetime.now()
+
+        while mongo.checkIfExistCollection("generation_status"):
+            sleep(1)
+
         if not mongo.checkIfExistCollection("pieces_search"):
-            collection = db[self.dbCollection]
+
+            db.connect("generation_status").insert_one({"status": "generating"})
+
+            collection = db.connect(self.dbCollection)
             cursor = collection.aggregate(PIECES_ALL)
             db.connect("pieces_search").insert_many(cursor)
 
         if not mongo.checkIfExistCollection("pieces_search_serialized"):
+
+            db.connect("generation_status").insert_one({"status": "generating"})
+
             cursor = db.connect("pieces_search").find().sort("inventory_number", 1)
             documents = [self.bson_to_json_serializable(doc) for doc in cursor]
             db.connect("pieces_search_serialized").insert_many(documents)
+            db.connect("pieces_search_serialized").insert_one(
+                {"_id": "1code", "unique_code": self.generate_unique_code_version()}
+            )
+        else:
+            cursor_code = db.connect("pieces_search_serialized").find_one(
+                {"_id": "1code"}
+            )
+            if cursor_code["unique_code"] == _code:
+                return Response(status=status.HTTP_304_NOT_MODIFIED)
 
-        serialized_json_data = db.connect("pieces_search_serialized").find().sort("inventory_number", 1)
-        documents = [self.bson_to_json_serializable(doc) for doc in serialized_json_data]
-        time_end = datetime.now()-time
+        if mongo.checkIfExistCollection("generation_status"):
+            db.connect("generation_status").drop()
 
-        return Response({"query": documents, "query_duration": time_end}, status=status.HTTP_202_ACCEPTED)
+        serialized_json_data = (
+            db.connect("pieces_search_serialized")
+            .find({"_id": {"$ne": "1code"}})
+            .sort("inventory_number", 1)
+        )
+        cursor_code = db.connect("pieces_search_serialized").find_one({"_id": "1code"})
+        code = cursor_code["unique_code"]
+        documents = [
+            self.bson_to_json_serializable(doc) for doc in serialized_json_data
+        ]
+        time_end = datetime.now() - time
+        # print(documents[0])
+
+        return Response(
+            {"query": documents, "code": code, "query_duration": time_end},
+            status=status.HTTP_202_ACCEPTED,
+        )
 
 
 class UserQueryDetail(APIView):
     permission_classes = [IsAuthenticated]
 
-    def post(self, request):
-        mongo = Mongo()
+    def get(self, request, _id):
+        if not _id:
+            return Response(
+                {"error": "Missing _id in request"}, status=status.HTTP_410_GONE
+            )
+        try:
+            object_id = ObjectId(_id)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
+        mongo = Mongo()
         search_piece = mongo.connect("pieces")
-        _id = request.data.get("_id")
+
         cursor = search_piece.aggregate(pieceDetail(_id))
 
         documents = [doc for doc in cursor]
@@ -98,15 +149,6 @@ class UserQueryDetail(APIView):
         cursor = modules.find(MODULES)
         documents = [doc for doc in cursor]
         json_modules = json.loads(json.dumps(documents, default=str))
-
-        if not _id:
-            return Response(
-                {"error": "Missing _id in request"}, status=status.HTTP_410_GONE
-            )
-        try:
-            object_id = ObjectId(_id)
-        except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         if json_detail:
             response_data = {"detail": json_detail, "modules": json_modules}
@@ -612,8 +654,12 @@ class InventoryEdit(APIView):
 
         # Get change data from the request
         changes = self.get_json_data(request, "changes")
-        changes_pics_inputs = self.process_changes(request, "changes_pics_inputs")
-        changes_docs_inputs = self.process_changes(request, "changes_docs_inputs")
+        changes_pics_inputs = self.process_changes(
+            request, "changes_pics_inputs"
+        )  # pics
+        changes_docs_inputs = self.process_changes(
+            request, "changes_docs_inputs"
+        )  # docs
 
         # Get changed documents and new documents from the request
         changed_docs = json.loads(request.data.get("changed_docs", "{}"))
@@ -747,7 +793,7 @@ class InventoryEdit(APIView):
             )
 
             # Insert the timestamped changes into the inventory changes collection
-            InventoryChanges.insert_one(timestamped_changes)           
+            InventoryChanges.insert_one(timestamped_changes)
         else:
             # Log a message if no changes are present
             print("Ninguno de los valores es un diccionario.")
@@ -820,7 +866,6 @@ class InventoryEdit(APIView):
             if "new_docs" in cursor_change:
                 self.process_new_docs(cursor_change, user_id, _id)
 
-            
             try:
                 is_approved = request.data.get("isApproved")
                 print(is_approved)
@@ -852,7 +897,12 @@ class InventoryEdit(APIView):
                             "$push": {"piece_before_changes": pieceStateBeforeChanges},
                         },
                     )
+
                     if result.modified_count > 0:
+                        # borramos serialized para que se vuelva a formar ya que cambio el contenido
+                        _ = mongo.checkAndDropIfExistCollection(
+                            "pieces_search_serialized"
+                        )
                         return Response("piece updated", status=status.HTTP_200_OK)
 
                 else:
@@ -973,7 +1023,7 @@ class InventoryEdit(APIView):
                     print("no se inserto la imagen en la coleccion")
 
             print("ModuleId", moduleId)
-          
+
         except Exception as e:
             return Response(
                 {"error": "Can't create the new photo registry " + str(e)},
@@ -1009,7 +1059,7 @@ class InventoryEdit(APIView):
                 shutil.move(origen, destingo)
                 print("se movio el documento del inventario")
                 print("doc[id]", doc["_id"])
-               
+
                 cursor2 = mongo.connect("documents").update_one(
                     {"_id": doc["_id"]},
                     {
@@ -1101,37 +1151,37 @@ class InventoryEdit(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+
 class ResearchEdit(APIView):
-    
+
     def get_module_id(self, module_name, mongo):
         cursor = mongo.connect("modules")
         module = cursor.find_one({"name": module_name})
         return module["_id"]
+
     def get(self, request, _id):
-        mongo = Mongo()    
-        
+        mongo = Mongo()
+
         module_id = self.get_module_id("research", mongo)
 
-        
         cursor = mongo.connect("researchs")
         research = cursor.aggregate(research_edit(module_id, _id))
         research = list(research)
-        
+
         print("research", research)
-        
+
         if research:
             cursor_change_json = json.loads(json.dumps(research, default=str))
             cursor_change_json = cursor_change_json[0]
-          
+
             print("cursor_change_json", cursor_change_json)
             return Response(cursor_change_json, status=status.HTTP_200_OK)
         else:
-            return Response({"response": "No se encontraron registros"}, status=status.HTTP_400_BAD_REQUEST)
-        
-        
-        
-        
-        
+            return Response(
+                {"response": "No se encontraron registros"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
 
 class AuditManager:
     mexico_tz = pytz.timezone("America/Mexico_City")

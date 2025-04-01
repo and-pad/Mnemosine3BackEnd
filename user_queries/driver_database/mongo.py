@@ -18,6 +18,8 @@ class Mongo: #En estas entradas del contsructor puedes poner tu usuario y passwo
         db = self.client[self.db_name]
         if collection_name in db.list_collection_names():
             db[collection_name].drop()
+            return True
+        return False
             
     def checkIfExistCollection(self, collection_name):                
         db = self.client[self.db_name]
@@ -42,14 +44,8 @@ class Mongo: #En estas entradas del contsructor puedes poner tu usuario y passwo
                 return {"collection": collection_name, "document": document}
         
         # Si no hay coincidencias, retornamos None o un valor indicativo
-        return None
+        return None    
         
         
-            
-        
-        
-               
-        
-        
-          
+
         

@@ -3,7 +3,6 @@ from bson import ObjectId
 MODULES = {"deleted_at": None}
 
 
-
 def pieceDetail(_id):
     PIECE_DETAIL = [
         {"$match": {"_id": ObjectId(_id)}},
@@ -685,6 +684,7 @@ PIECES_ALL = [
             "genders_info": {
                 "$mergeObjects": [
                     {
+                        "_id": {"$arrayElemAt": ["$genders_info._id", 0]},
                         "title": {"$arrayElemAt": ["$genders_info.title", 0]},
                         "description": {
                             "$arrayElemAt": ["$genders_info.description", 0]
@@ -695,6 +695,10 @@ PIECES_ALL = [
             "subgenders_info": {
                 "$mergeObjects": [
                     {
+                        "_id": {"$arrayElemAt": ["$subgenders_info._id", 0]},
+                        "gender_id": {
+                            "$arrayElemAt": ["$subgenders_info.gender_id", 0]
+                        },
                         "title": {"$arrayElemAt": ["$subgenders_info.title", 0]},
                         "description": {
                             "$arrayElemAt": ["$subgenders_info.description", 0]
@@ -705,6 +709,7 @@ PIECES_ALL = [
             "type_object_info": {
                 "$mergeObjects": [
                     {
+                        "_id": {"$arrayElemAt": ["$type_object_info._id", 0]},
                         "title": {"$arrayElemAt": ["$type_object_info.title", 0]},
                         "description": {
                             "$arrayElemAt": ["$type_object_info.description", 0]
@@ -715,6 +720,7 @@ PIECES_ALL = [
             "catalog_type_object_info": {
                 "$mergeObjects": [
                     {
+                        "_id": {"$arrayElemAt": ["$catalog_type_object_info._id", 0]},
                         "code": {
                             "$arrayElemAt": ["$catalog_type_object_info.title", 0]
                         },
@@ -727,6 +733,7 @@ PIECES_ALL = [
             "location_info": {
                 "$mergeObjects": [
                     {
+                        "_id": {"$arrayElemAt": ["$location_info._id", 0]},
                         "name": {"$arrayElemAt": ["$location_info.name", 0]},
                     },
                 ]
@@ -734,6 +741,7 @@ PIECES_ALL = [
             "dominant_material_info": {
                 "$mergeObjects": [
                     {
+                        "_id": {"$arrayElemAt": ["$dominant_material_info._id", 0]},
                         "title": {"$arrayElemAt": ["$dominant_material_info.title", 0]},
                         "description": {
                             "$arrayElemAt": ["$dominant_material_info.description", 0]
@@ -744,6 +752,9 @@ PIECES_ALL = [
             "catalog_dominant_material_info": {
                 "$mergeObjects": [
                     {
+                        "_id": {
+                            "$arrayElemAt": ["$catalog_dominant_material_info._id", 0]
+                        },
                         "code": {
                             "$arrayElemAt": ["$catalog_dominant_material_info.code", 0]
                         },
@@ -756,6 +767,7 @@ PIECES_ALL = [
             "institutions_info": {
                 "$mergeObjects": [
                     {
+                        "_id": {"$arrayElemAt": ["$institutions_info._id", 0]},
                         "name": {"$arrayElemAt": ["$institutions_info.name", 0]},
                         "city": {"$arrayElemAt": ["$institutions_info.city", 0]},
                         "business_activity": {
@@ -769,7 +781,8 @@ PIECES_ALL = [
             },
         }
     },
-] 
+]
+
 
 def inventory_edit(_id):
     piece_edit = [
@@ -811,31 +824,125 @@ def inventory_edit(_id):
     ]
     return piece_edit
 
+
 def research_edit(module_id, _id):
 
     piece_edit = [
         {"$match": {"piece_id": ObjectId(_id)}},
         {
             "$lookup": {
+                "from": "pieces_search",
+                "pipeline": [
+                    {
+                        "$match": {"$expr": {"$eq": ["$_id", ObjectId(_id)]}},
+                    },
+                    {
+                        "$project": {
+                            "_id": 0,  # Opcional: excluye el _id si no lo necesitas
+                            "genders_info": 1,
+                            "subgenders_info": 1,
+                            "type_object_info": 1,
+                            "dominant_material_info": 1,
+                            "description_origin": 1,
+                            "description_inventory": 1,
+                        }
+                    },
+                ],
+                "as": "inventory_data",
+            }
+        },
+        {
+            "$lookup": {
                 "from": "catalog_elements",
-                "localField": "author_ids",
-                "foreignField": "_id",
+                "let": {"typeObjectId": "$type_object_id"},
+                "pipeline": [
+                    {
+                        "$match": {
+                            "$expr": {
+                                "$and": [
+                                    {"$eq": ["$_id", "$$typeObjectId"]},
+                                    {"$eq": ["$deleted_at", None]},
+                                ]
+                            }
+                        }
+                    }
+                ],
+                "as": "type_object_info",
+            }
+        },
+        {
+            "$lookup": {
+                "from": "catalog_elements",
+                "let": {"dominantMaterialId": "$dominant_material_id"},
+                "pipeline": [
+                    {
+                        "$match": {
+                            "$expr": {
+                                "$and": [
+                                    {"$eq": ["$_id", "$$dominantMaterialId"]},
+                                    {"$eq": ["$deleted_at", None]},
+                                ]
+                            }
+                        }
+                    }
+                ],
+                "as": "dominant_material_info",
+            }
+        },
+        {
+            "$lookup": {
+                "from": "catalog_elements",
+                "let": {"authorIds": {"$ifNull": ["$author_ids", []]}},
+                "pipeline": [
+                    {
+                        "$match": {
+                            "$expr": {
+                                "$and": [
+                                    {"$in": ["$_id", "$$authorIds"]},
+                                    {"$eq": ["$deleted_at", None]},
+                                ]
+                            }
+                        }
+                    }
+                ],
                 "as": "authors_info",
             }
         },
         {
             "$lookup": {
                 "from": "catalog_elements",
-                "localField": "place_of_creation_id",
-                "foreignField": "_id",
+                "let": {"placeOfCreationId": "$place_of_creation_id"},
+                "pipeline": [
+                    {
+                        "$match": {
+                            "$expr": {
+                                "$and": [
+                                    {"$eq": ["$_id", "$$placeOfCreationId"]},
+                                    {"$eq": ["$deleted_at", None]},
+                                ]
+                            }
+                        }
+                    }
+                ],
                 "as": "place_of_creation_info",
             }
         },
         {
             "$lookup": {
                 "from": "catalog_elements",
-                "localField": "involved_creation_ids",
-                "foreignField": "_id",
+                "let": {"involvedCreationIds": {"$ifNull":["$involved_creation_ids", []]}},
+                "pipeline": [
+                    {
+                        "$match": {
+                            "$expr": {
+                                "$and": [
+                                    {"$in": ["$_id", "$$involvedCreationIds"]},
+                                    {"$eq": ["$deleted_at", None]},
+                                ]
+                            }
+                        }
+                    }
+                ],
                 "as": "involved_creation_info",
             }
         },
@@ -896,8 +1003,8 @@ def research_edit(module_id, _id):
                 "as": "footnotes_info",
             }
         },
-        #lookup para bibliographies
-        { 
+        # lookup para bibliographies
+        {
             "$lookup": {
                 "from": "bibliographies",
                 "let": {"research_id": "$_id"},
@@ -918,7 +1025,18 @@ def research_edit(module_id, _id):
                 "as": "bibliographies_info",
             }
         },
-        
     ]
 
     return piece_edit
+
+
+Authors = [
+    {  # lookup lo que hace es ver en otra collecion
+        "$lookup": {
+            "from": "genders",  # Aqui le ponemos el nombre de la colección a buscar
+            "localField": "gender_id",  # el campo local de coincidencia
+            "foreignField": "_id",  # el campo foraneo de coincidencia
+            "as": "genders_info",  # nombre como regresara las coincidencias
+        }
+    },
+]
