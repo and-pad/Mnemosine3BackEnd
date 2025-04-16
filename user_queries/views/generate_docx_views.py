@@ -2,6 +2,7 @@ import json
 import html
 from io import BytesIO
 from datetime import datetime
+
 # Librerías de terceros
 from bson import ObjectId
 from bson.decimal128 import Decimal128
@@ -24,8 +25,8 @@ from user_queries.mongo_queries import (
     pieceDetail,
 )
 
-class Tools:
 
+class Tools:
     def human_spanish_time(self, admitted_at):
         now = datetime.now()
         delta = now - admitted_at
@@ -45,6 +46,8 @@ class Tools:
             return f"hace {int(minutes)} minut{'os' if minutes > 1 else 'o'}"
         else:
             return "hace unos segundos"
+
+
 class UserQueryDetail(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -60,14 +63,10 @@ class UserQueryDetail(APIView):
 
         mongo = Mongo()
         search_piece = mongo.connect("pieces")
-
         cursor = search_piece.aggregate(pieceDetail(_id))
-
         documents = [doc for doc in cursor]
         json_detail = json.loads(json.dumps(documents, default=str))
-
         modules = mongo.connect("modules")
-
         cursor = modules.find(MODULES)
         documents = [doc for doc in cursor]
         json_modules = json.loads(json.dumps(documents, default=str))
@@ -79,7 +78,6 @@ class UserQueryDetail(APIView):
             return Response(
                 {"error": "Pieces not found"}, status=status.HTTP_404_NOT_FOUND
             )
-
 
 class GenerateDetailPieceDocx(APIView):
     permission_classes = [IsAuthenticated]
@@ -162,7 +160,6 @@ class GenerateDetailPieceDocx(APIView):
                             settings.THUMBNAILS_INVENTORY_PATH + f"{photo['file_name']}"
                         )
                         photos_inventory.append(image)
-
                     # Separar en grupos de 4 imágenes
                     split = 4
                     rows_array = [

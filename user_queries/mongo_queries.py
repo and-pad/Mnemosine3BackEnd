@@ -60,8 +60,19 @@ def pieceDetail(_id):
                     {
                         "$lookup": {
                             "from": "catalog_elements",
-                            "localField": "responsible_restorer",
-                            "foreignField": "_id",
+                            # "localField": "responsible_restorer",
+                            # "foreignField": "_id",
+                            "let": {"responsible_restorer": "$_id"},
+                            "pipeline": [
+                                {
+                                    "$match": {
+                                        "$expr": {
+                                            "$eq": ["$_id", "$$responsible_restorer"]
+                                        }
+                                    }
+                                },
+                                {"$match": {"$expr": {"$eq": ["$deleted_at", None]}}},
+                            ],
                             "as": "responsible_info",
                         }
                     },
@@ -105,6 +116,7 @@ def pieceDetail(_id):
                                         }
                                     }
                                 },
+                                {"$match": {"$expr": {"$eq": ["$deleted_at", None]}}},
                                 {
                                     "$lookup": {
                                         "from": "catalog_elements",
@@ -125,8 +137,17 @@ def pieceDetail(_id):
                     {
                         "$lookup": {
                             "from": "catalog_elements",
-                            "localField": "author_ids",
-                            "foreignField": "_id",
+                            # "localField": "author_ids",
+                            # "foreignField": "_id",
+                            "let": {"author_ids": {"$ifNull": ["$author_ids", []]}},
+                            "pipeline": [
+                                {
+                                    "$match": {
+                                        "$expr": {"$in": ["$_id", "$$author_ids"]}
+                                    }
+                                },
+                                {"$match": {"$expr": {"$eq": ["$deleted_at", None]}}},
+                            ],
                             "as": "author_info",
                         }
                     },
@@ -141,32 +162,74 @@ def pieceDetail(_id):
                     {
                         "$lookup": {
                             "from": "catalog_elements",
-                            "localField": "involved_creation_ids",
-                            "foreignField": "_id",
+                            # "localField": "involved_creation_ids",
+                            # "foreignField": "_id",
+                            "let": {
+                                "involved_creation_ids": {
+                                    "$ifNull": ["$involved_creation_ids", []]
+                                }
+                            },
+                            "pipeline": [
+                                {
+                                    "$match": {
+                                        "$expr": {
+                                            "$in": ["$_id", "$$involved_creation_ids"]
+                                        }
+                                    }
+                                },
+                                {"$match": {"$expr": {"$eq": ["$deleted_at", None]}}},
+                            ],
                             "as": "involved_creation_info",
                         }
                     },
                     {
                         "$lookup": {
                             "from": "catalog_elements",
-                            "localField": "period_id",
-                            "foreignField": "_id",
+                            # "localField": "period_id",
+                            # "foreignField": "_id",
+                            "let": {"period_id": "$period_id"},
+                            "pipeline": [
+                                {"$match": {"$expr": {"$eq": ["$_id", "$$period_id"]}}},
+                                {"$match": {"$expr": {"$eq": ["$deleted_at", None]}}},
+                            ],
                             "as": "period_info",
                         }
                     },
                     {
                         "$lookup": {
                             "from": "catalog_elements",
-                            "localField": "place_of_creation_id",
-                            "foreignField": "_id",
+                            # "localField": "place_of_creation_id",
+                            # "foreignField": "_id",
+                            "let": {"place_of_creation_id": "$place_of_creation_id"},
+                            "pipeline": [
+                                {
+                                    "$match": {
+                                        "$expr": {
+                                            "$eq": ["$_id", "$$place_of_creation_id"]
+                                        }
+                                    }
+                                },
+                                {"$match": {"$expr": {"$eq": ["$deleted_at", None]}}},
+                            ],
                             "as": "place_of_creation_info",
                         }
                     },
                     {
                         "$lookup": {
                             "from": "footnotes",
-                            "localField": "_id",
-                            "foreignField": "research_id",
+                            # "localField": "_id",
+                            # "foreignField": "research_id",
+                            "let": {"research_id": "$_id"},
+                            "pipeline": [
+                                {
+                                    "$match": {
+                                        "$expr": {
+                                            "$eq": ["$research_id", "$$research_id"]
+                                        }
+                                    }
+                                },
+                                {"$match": {"$expr": {"$eq": ["$deleted_at", None]}}},
+                            ],
                             "as": "footnotes_info",
                         }
                     },
@@ -578,8 +641,19 @@ PIECES_ALL = [
     {
         "$lookup": {
             "from": "catalog_elements",
-            "localField": "research_info.involved_creation_ids",
-            "foreignField": "_id",
+            "let": {"involvedCreationIds": {"$ifNull": ["$involved_creation_ids", []]}},
+            "pipeline": [
+                {
+                    "$match": {
+                        "$expr": {
+                            "$and": [
+                                {"$in": ["$_id", "$$involvedCreationIds"]},
+                                {"$eq": ["$deleted_at", None]},
+                            ]
+                        }
+                    }
+                }
+            ],
             "as": "involved_creation_info",
         }
     },
@@ -854,7 +928,7 @@ def research_edit(module_id, _id):
         {
             "$lookup": {
                 "from": "catalog_elements",
-                "let": {"typeObjectId": "$type_object_id"},
+                "let": {"typeObjectId": {"$ifNull": ["$type_object_id", []]}},
                 "pipeline": [
                     {
                         "$match": {
@@ -873,7 +947,7 @@ def research_edit(module_id, _id):
         {
             "$lookup": {
                 "from": "catalog_elements",
-                "let": {"dominantMaterialId": "$dominant_material_id"},
+                "let": {"dominantMaterialId": {"$ifNull": ["$dominant_material_id", []]}},
                 "pipeline": [
                     {
                         "$match": {
@@ -911,7 +985,26 @@ def research_edit(module_id, _id):
         {
             "$lookup": {
                 "from": "catalog_elements",
-                "let": {"placeOfCreationId": "$place_of_creation_id"},
+                "let": {"periodId": {"$ifNull": ["$period_id", []]}},
+                "pipeline": [
+                    {
+                        "$match": {
+                            "$expr": {
+                                "$and": [
+                                    {"$eq": ["$_id", "$$periodId"]},
+                                    {"$eq": ["$deleted_at", None]},
+                                ]
+                            }
+                        }
+                    }
+                ],
+                "as": "period_info",
+            }
+        },
+        {
+            "$lookup": {
+                "from": "catalog_elements",
+                "let": {"placeOfCreationId": {"$ifNull": ["$place_of_creation_id", []]}},
                 "pipeline": [
                     {
                         "$match": {
@@ -930,7 +1023,9 @@ def research_edit(module_id, _id):
         {
             "$lookup": {
                 "from": "catalog_elements",
-                "let": {"involvedCreationIds": {"$ifNull":["$involved_creation_ids", []]}},
+                "let": {
+                    "involvedCreationIds": {"$ifNull": ["$involved_creation_ids", []]}
+                },
                 "pipeline": [
                     {
                         "$match": {
@@ -1030,6 +1125,7 @@ def research_edit(module_id, _id):
     return piece_edit
 
 
+"""
 Authors = [
     {  # lookup lo que hace es ver en otra collecion
         "$lookup": {
@@ -1040,3 +1136,4 @@ Authors = [
         }
     },
 ]
+"""
