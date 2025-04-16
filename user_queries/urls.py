@@ -11,7 +11,7 @@ from django.conf.urls.static import static
 urlpatterns = [
     path("user_query/<str:_code>", UserQueryAll.as_view()),    
     path("user_query/detail/<str:_id>", UserQueryDetail.as_view()),
-    path("user_query/detail/word", GenerateDetailPieceDocx.as_view()),    
+    path("user_query/detail/word/", GenerateDetailPieceDocx.as_view()),    
     path("inventory_query/edit/<str:_id>/", InventoryEdit.as_view()),
     path("piece_researchs/edit/<str:_id>/", ResearchEdit.as_view()),
 

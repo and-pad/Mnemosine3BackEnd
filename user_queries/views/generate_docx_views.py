@@ -1,4 +1,3 @@
-import json
 import html
 from io import BytesIO
 from datetime import datetime
@@ -7,12 +6,11 @@ from datetime import datetime
 from bson import ObjectId
 from bson.decimal128 import Decimal128
 from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
+
 from rest_framework.permissions import IsAuthenticated
 
 from django.conf import settings
-from django.conf.urls.static import static
+
 from django.http import HttpResponse
 
 from docxtpl import DocxTemplate, InlineImage
@@ -20,10 +18,7 @@ from docx.shared import Mm
 
 # Módulos locales
 from user_queries.driver_database.mongo import Mongo
-from user_queries.mongo_queries import (
-    MODULES,
-    pieceDetail,
-)
+
 
 
 class Tools:
@@ -48,36 +43,6 @@ class Tools:
             return "hace unos segundos"
 
 
-class UserQueryDetail(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request, _id):
-        if not _id:
-            return Response(
-                {"error": "Missing _id in request"}, status=status.HTTP_410_GONE
-            )
-        try:
-            object_id = ObjectId(_id)
-        except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
-        mongo = Mongo()
-        search_piece = mongo.connect("pieces")
-        cursor = search_piece.aggregate(pieceDetail(_id))
-        documents = [doc for doc in cursor]
-        json_detail = json.loads(json.dumps(documents, default=str))
-        modules = mongo.connect("modules")
-        cursor = modules.find(MODULES)
-        documents = [doc for doc in cursor]
-        json_modules = json.loads(json.dumps(documents, default=str))
-
-        if json_detail:
-            response_data = {"detail": json_detail, "modules": json_modules}
-            return Response(response_data, status=status.HTTP_200_OK)
-        else:
-            return Response(
-                {"error": "Pieces not found"}, status=status.HTTP_404_NOT_FOUND
-            )
 
 class GenerateDetailPieceDocx(APIView):
     permission_classes = [IsAuthenticated]
