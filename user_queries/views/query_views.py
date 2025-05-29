@@ -52,52 +52,47 @@ class UserQueryAll(APIView):
         db = mongo
         time = datetime.now()
 
+        # Esperar si alguien más ya está generando
         while mongo.checkIfExistCollection("generation_status"):
             sleep(1)
 
+        # Si no existe la colección base, generar
         if not mongo.checkIfExistCollection("pieces_search"):
-
             db.connect("generation_status").insert_one({"status": "generating"})
-
             collection = db.connect(self.dbCollection)
             cursor = collection.aggregate(PIECES_ALL)
             db.connect("pieces_search").insert_many(cursor)
 
+        # Si no existe la colección serializada, generar
         if not mongo.checkIfExistCollection("pieces_search_serialized"):
-
             db.connect("generation_status").insert_one({"status": "generating"})
-
             cursor = db.connect("pieces_search").find().sort("inventory_number", 1)
             documents = [self.bson_to_json_serializable(doc) for doc in cursor]
             db.connect("pieces_search_serialized").insert_many(documents)
+
+            new_code = self.generate_unique_code_version()
             db.connect("pieces_search_serialized").insert_one(
-                {"_id": "1code", "unique_code": self.generate_unique_code_version()}
+                {"_id": "1code", "unique_code": new_code}
             )
         else:
-            cursor_code = db.connect("pieces_search_serialized").find_one(
-                {"_id": "1code"}
-            )
+            # Obtener el token actual
+            cursor_code = db.connect("pieces_search_serialized").find_one({"_id": "1code"})
             if cursor_code["unique_code"] == _code:
                 return Response(status=status.HTTP_304_NOT_MODIFIED)
-
-        if mongo.checkIfExistCollection("generation_status"):
-            db.connect("generation_status").drop()
-
+            new_code = cursor_code["unique_code"]  # Reutilizamos esta variable
+        # Limpiar bandera de generación si existía
+        mongo.checkAndDropIfExistCollection("generation_status")
+        # Obtener datos serializados sin el token
         serialized_json_data = (
             db.connect("pieces_search_serialized")
             .find({"_id": {"$ne": "1code"}})
             .sort("inventory_number", 1)
         )
-        cursor_code = db.connect("pieces_search_serialized").find_one({"_id": "1code"})
-        code = cursor_code["unique_code"]
-        documents = [
-            self.bson_to_json_serializable(doc) for doc in serialized_json_data
-        ]
+        documents = [self.bson_to_json_serializable(doc) for doc in serialized_json_data]
         time_end = datetime.now() - time
-        # print(documents[0])
 
         return Response(
-            {"query": documents, "code": code, "query_duration": time_end},
+            {"query": documents, "code": new_code, "query_duration": time_end},
             status=status.HTTP_202_ACCEPTED,
         )
 

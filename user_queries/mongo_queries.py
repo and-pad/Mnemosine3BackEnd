@@ -899,6 +899,26 @@ def inventory_edit(_id):
     return piece_edit
 
 
+def inventory_research_edit(_id):
+
+    piece_edit = [
+        {"$match": {"_id": ObjectId(_id)}},
+        {"$match": {"$expr": {"$eq": ["$deleted_at", None]}}},
+        {
+            "$project": {
+                "_id": 0,  # Opcional: excluye el _id si no lo necesitas
+                "genders_info": 1,
+                "subgenders_info": 1,
+                "type_object_info": 1,
+                "dominant_material_info": 1,
+                "description_origin": 1,
+                "description_inventory": 1,
+            }
+        },
+    ]
+    return piece_edit
+
+
 def research_edit(module_id, _id):
 
     piece_edit = [
@@ -947,7 +967,9 @@ def research_edit(module_id, _id):
         {
             "$lookup": {
                 "from": "catalog_elements",
-                "let": {"dominantMaterialId": {"$ifNull": ["$dominant_material_id", []]}},
+                "let": {
+                    "dominantMaterialId": {"$ifNull": ["$dominant_material_id", []]}
+                },
                 "pipeline": [
                     {
                         "$match": {
@@ -1004,7 +1026,9 @@ def research_edit(module_id, _id):
         {
             "$lookup": {
                 "from": "catalog_elements",
-                "let": {"placeOfCreationId": {"$ifNull": ["$place_of_creation_id", []]}},
+                "let": {
+                    "placeOfCreationId": {"$ifNull": ["$place_of_creation_id", []]}
+                },
                 "pipeline": [
                     {
                         "$match": {
@@ -1104,6 +1128,17 @@ def research_edit(module_id, _id):
                 "from": "bibliographies",
                 "let": {"research_id": "$_id"},
                 "pipeline": [
+                    {
+                        "$lookup": {
+                            "from": "catalog_elements",
+                            "let": {"ref_id": "$reference_type_id"},
+                            "pipeline": [
+                                {"$match": {"$expr": {"$eq": ["$_id", "$$ref_id"]}}},
+                                {"$project": {"_id": 1, "title": 1}},
+                            ],
+                            "as": "reference_type_info",
+                        }
+                    },
                     {
                         "$match": {
                             "$expr": {

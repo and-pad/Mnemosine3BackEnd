@@ -2,7 +2,9 @@
 from math import e
 from wsgiref.handlers import format_date_time
 import jwt
-from django.contrib.auth.models import User
+#from django.contrib.auth.models import User
+from django.contrib.auth import get_user_model
+
 from rest_framework import serializers
 from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny
@@ -16,6 +18,7 @@ from django.shortcuts import get_object_or_404
 from .mongo_queries import getPermissions
 from time import time
 from user_queries.driver_database.mongo import Mongo
+User = get_user_model()
 
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
@@ -27,6 +30,8 @@ class LoginSerializer(serializers.Serializer):
         password = data.get("password")
         
         authenticated_user = authenticate(username=email, password=password)
+        
+        print("authenticated_user", authenticated_user)
         if authenticated_user:
             if authenticated_user.is_active:
                 data["user"] = authenticated_user                
@@ -71,8 +76,11 @@ class signinView(APIView):
 
     def post(self, request):
         serializer = LoginSerializer(data=request.data)
+        #print(request.data)
         if serializer.is_valid():
             user = serializer.validated_data["user"]
+            
+            #print("user",user)
             refresh = RefreshToken.for_user(user)
             #print(user)
             permission = Permission()            
@@ -225,6 +233,9 @@ class UserManage(APIView):
         # Obtén todos los usuarios
         all_users = User.objects.all()
         # Filtra los usuarios activos e inactivos
+        
+                
+            
         users_active = [
             {'id': user.id, 'username': user.username, 'email': user.email}
             for user in all_users if user.is_active

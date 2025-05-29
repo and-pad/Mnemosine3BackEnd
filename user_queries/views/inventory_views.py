@@ -1,3 +1,4 @@
+
 from user_queries.views.tools import AuditManager
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -665,17 +666,17 @@ class InventoryEdit(APIView):
                 )
                 # copiando la imagen del temporal al inventario
                 if cursor.modified_count > 0:
-                    print("se inseto la imagen en la coleccion")
+                    print("se inserto la imagen en la coleccion")
                     origen = os.path.join(
                         settings.TEMPORARY_UPLOAD_DIRECTORY, pic["file_name"]
                     )
                     destino = os.path.join(
                         settings.PHOTO_INVENTORY_PATH, pic["file_name"]
                     )
-                    shutil.copy(origen, destino)
+                    shutil.move(origen, destino)
                     # creando la miniatura
                     img = Image.open(
-                        settings.TEMPORARY_UPLOAD_DIRECTORY + pic["file_name"]
+                        settings.PHOTO_INVENTORY_PATH + pic["file_name"]
                     )
                     width_thumbnail = 100
                     height_thumbnail = int(img.height * (width_thumbnail / img.width))
@@ -687,10 +688,12 @@ class InventoryEdit(APIView):
                     origen = os.path.join(
                         settings.TEMPORARY_UPLOAD_DIRECTORY, pic["file_name"]
                     )
+                    """
                     destino = os.path.join(
                         settings.TEMPORARY_UPLOAD_DIRECTORY, "used_" + pic["file_name"]
                     )
-                    shutil.move(origen, destino)
+                    """#este codigo se usa si solo quieres marcar la imagen como usada
+                    os.remove(origen)
                     print("se movio la imagen del temporal al inventario")
                 else:
                     print("no se inserto la imagen en la coleccion")
