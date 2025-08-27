@@ -16,7 +16,7 @@ class ResearchSchema(BaseModel):
     acquisition_form: Optional[str] = None
     acquisition_source: Optional[str] = None
     acquisition_date: Optional[str] = None
-    firm: Optional[bool] = None
+    firm: Optional[bool] =  False
     firm_description: Optional[str] = None
     short_description: Optional[str] = None
     formal_description: Optional[str] = None

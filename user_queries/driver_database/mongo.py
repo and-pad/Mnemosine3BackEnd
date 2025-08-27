@@ -1,18 +1,18 @@
-from django import db
+
 import pymongo
 
 class Mongo: #En estas entradas del contsructor puedes poner tu usuario y password de desarrollo :)
-    def __init__(self, db_name = "Mnemosine", user_name = "usuario1", password = "123456"):
-        self.db_name = db_name
-        self.user = user_name
-        self.password = password
-        self.client = pymongo.MongoClient(f"mongodb://{self.user}:{self.password}@localhost:27017/")
+    def __init__(self, *args, **kwargs):
+        #db_name = "Mnemosine", user_name = "usuario1", password = "123456", port = "27017"
+        self.db_name = kwargs.get("db_name", "Mnemosine")        
+        self.user = kwargs.get("user_name", "usuario1")
+        self.password = kwargs.get("password", "123456")
+        self.port = kwargs.get("port", "27017")
+        self.client = pymongo.MongoClient(f"mongodb://{self.user}:{self.password}@localhost:{self.port}/")
         
         
-    def connect(self, dBcollection):        
-        db = self.client[self.db_name]
-        collection = db[dBcollection]
-        return collection    
+    def connect(self, db_collection):                
+        return self.client[self.db_name][db_collection]
  
     def checkAndDropIfExistCollection(self, collection_name):                
         db = self.client[self.db_name]

@@ -1220,3 +1220,8 @@ class AuditManager:
         result = self.add_timestampsInfo(object, user_id)
         print("result", result)
         return result
+    def add_updateInfo(self, object, user_id):
+        #print("object in add_updateInfo", object)
+        object["updated_by"] = user_id
+        object["updated_at"] = datetime.now(self.mexico_tz)
+        return object

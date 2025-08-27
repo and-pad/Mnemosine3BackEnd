@@ -114,8 +114,9 @@ class UserQueryDetail(APIView):
         search_piece = mongo.connect("pieces")
 
         cursor = search_piece.aggregate(pieceDetail(_id))
-
+        
         documents = [doc for doc in cursor]
+        
         json_detail = json.loads(json.dumps(documents, default=str))
 
         modules = mongo.connect("modules")

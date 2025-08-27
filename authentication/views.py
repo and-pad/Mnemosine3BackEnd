@@ -28,6 +28,7 @@ class LoginSerializer(serializers.Serializer):
         
         email = data.get("email")
         password = data.get("password")
+        print("email, password", email, password)
         
         authenticated_user = authenticate(username=email, password=password)
         

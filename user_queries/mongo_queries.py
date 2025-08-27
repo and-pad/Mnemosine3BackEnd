@@ -235,7 +235,7 @@ def pieceDetail(_id):
                     },
                     {
                         "$lookup": {
-                            "from": "auth_user",
+                            "from": "authentication_my_user",
                             "localField": "created_by",
                             "foreignField": "id",
                             "as": "created_by_info",
@@ -243,7 +243,7 @@ def pieceDetail(_id):
                     },
                     {
                         "$lookup": {
-                            "from": "auth_user",
+                            "from": "authentication_my_user",
                             "localField": "updated_by",
                             "foreignField": "id",
                             "as": "updated_by_info",
@@ -283,7 +283,7 @@ def pieceDetail(_id):
                     {"$match": {"$expr": {"$eq": ["$deleted_at", None]}}},
                     {
                         "$lookup": {
-                            "from": "auth_user",
+                            "from": "authentication_my_user",
                             "localField": "created_by",
                             "foreignField": "id",
                             "as": "user_info",
@@ -347,7 +347,7 @@ def pieceDetail(_id):
         },
         {
             "$lookup": {
-                "from": "auth_user",
+                "from": "authentication_my_user",
                 "localField": "created_by",
                 "foreignField": "id",
                 "as": "created_by_piece_info",
@@ -355,7 +355,7 @@ def pieceDetail(_id):
         },
         {
             "$lookup": {
-                "from": "auth_user",
+                "from": "authentication_my_user",
                 "localField": "updated_by",
                 "foreignField": "id",
                 "as": "updated_by_piece_info",
@@ -1117,7 +1117,7 @@ def research_edit(module_id, _id):
                         }
                     },
                     {"$match": {"$expr": {"$eq": ["$deleted_at", None]}}},
-                    {"$sort": {"created_at": -1}},
+                    {"$sort": {"created_at": 1}},
                 ],
                 "as": "footnotes_info",
             }
@@ -1135,6 +1135,7 @@ def research_edit(module_id, _id):
                             "pipeline": [
                                 {"$match": {"$expr": {"$eq": ["$_id", "$$ref_id"]}}},
                                 {"$project": {"_id": 1, "title": 1}},
+                                
                             ],
                             "as": "reference_type_info",
                         }

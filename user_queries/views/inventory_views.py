@@ -461,11 +461,12 @@ class InventoryEdit(APIView):
                 combined_changes.setdefault("changed_docs", []).extend(saved_files_doc)
 
             # Add timestamps and approval info to the changes
-            timestamped_changes = timestamps.add_timestamps(combined_changes)
+            timestamped_changes = timestamps.add_timestampsUpdate(combined_changes)
             timestamped_changes = timestamps.add_approvalInfo(
                 timestamped_changes, user_id, _id
             )
-
+            
+            timestamped_changes["changed_by_module_id"] = ObjectId(self.get_module_id("inventory", mongo))
             # Insert the timestamped changes into the inventory changes collection
             InventoryChanges.insert_one(timestamped_changes)
         else:
@@ -513,8 +514,9 @@ class InventoryEdit(APIView):
                 "new_docs",
                 "changed_docs_info",
                 "new_docs_info",
+                "changed_by_module_id",
             }
-
+            print("cursor_change", cursor_change)
             data_piece_to_update = {
                 key: (
                     ObjectId(item["newValue"]["_id"])
@@ -524,7 +526,7 @@ class InventoryEdit(APIView):
                 for key, item in cursor_change.items()
                 if key not in exclusions
             }
-            print("cursor_change", cursor_change)
+            
 
             if "changed_pics" in cursor_change:
                 self.process_changed_pics(cursor_change, user_id, _id)
@@ -615,11 +617,11 @@ class InventoryEdit(APIView):
                 audit = AuditManager()
                 newpic = audit.add_photoInfo(newpic, user_id)
                 mongo.connect("photographs").insert_one(newpic)
-                origen = os.path.join(
+                source = os.path.join(
                     settings.TEMPORARY_UPLOAD_DIRECTORY, pic["file_name"]
                 )
-                destino = os.path.join(settings.PHOTO_INVENTORY_PATH, pic["file_name"])
-                shutil.copy(origen, destino)
+                destination = os.path.join(settings.PHOTO_INVENTORY_PATH, pic["file_name"])
+                shutil.copy(source, destination)
                 img = Image.open(settings.TEMPORARY_UPLOAD_DIRECTORY + pic["file_name"])
                 width_thumbnail = 100
                 height_thumbnail = int(img.height * (width_thumbnail / img.width))
@@ -635,8 +637,10 @@ class InventoryEdit(APIView):
 
     def process_changed_pics(self, cursor_change, user_id, _id):
         mongo = Mongo()
+        
         try:
             moduleId = self.get_module_id("inventory", mongo)
+            print("Changed pics", cursor_change["changed_pics"])
             for pic in cursor_change["changed_pics"]:
                 print("pic", pic)
 
@@ -644,15 +648,17 @@ class InventoryEdit(APIView):
                     {"_id": pic["_id"]}
                 )
 
-                # renaming the actual photo beacuse is deletiong but just we gona to change the file name adding one underscore _ and delete i.e Asdweasd_delete.jpg
-                origen = os.path.join(
+                # renaming the actual photo beacuse is deleting,
+                # but just we gona to change the file name adding
+                # one underscore "_" and "deleted" i.e deleted_Asdweasd.jpg
+                source = os.path.join(
                     settings.PHOTO_INVENTORY_PATH, photo_cursor["file_name"]
                 )
-                destingo = os.path.join(
+                destination = os.path.join(
                     settings.PHOTO_INVENTORY_PATH,
                     "deleted_" + photo_cursor["file_name"],
                 )
-                shutil.move(origen, destingo)
+                shutil.move(source, destination)
                 # actualizando la foto en la coleccion
                 cursor = mongo.connect("photographs").update_one(
                     {"_id": pic["_id"]},
@@ -667,13 +673,13 @@ class InventoryEdit(APIView):
                 # copiando la imagen del temporal al inventario
                 if cursor.modified_count > 0:
                     print("se inserto la imagen en la coleccion")
-                    origen = os.path.join(
+                    source = os.path.join(
                         settings.TEMPORARY_UPLOAD_DIRECTORY, pic["file_name"]
                     )
-                    destino = os.path.join(
+                    destination = os.path.join(
                         settings.PHOTO_INVENTORY_PATH, pic["file_name"]
                     )
-                    shutil.move(origen, destino)
+                    shutil.move(source, destination)
                     # creando la miniatura
                     img = Image.open(
                         settings.PHOTO_INVENTORY_PATH + pic["file_name"]
@@ -685,15 +691,15 @@ class InventoryEdit(APIView):
                         settings.THUMBNAILS_INVENTORY_PATH + pic["file_name"]
                     )
 
-                    origen = os.path.join(
+                    source = os.path.join(
                         settings.TEMPORARY_UPLOAD_DIRECTORY, pic["file_name"]
                     )
                     """
-                    destino = os.path.join(
+                    destination = os.path.join(
                         settings.TEMPORARY_UPLOAD_DIRECTORY, "used_" + pic["file_name"]
                     )
                     """#este codigo se usa si solo quieres marcar la imagen como usada
-                    os.remove(origen)
+                    os.remove(source)
                     print("se movio la imagen del temporal al inventario")
                 else:
                     print("no se inserto la imagen en la coleccion")
@@ -725,14 +731,14 @@ class InventoryEdit(APIView):
                 print("docPsc", doc)
                 doc_cursor = mongo.connect("documents").find_one({"_id": doc["_id"]})
                 print("doc_cursor", doc_cursor)
-                origen = os.path.join(
+                source = os.path.join(
                     settings.DOCUMENT_INVENTORY_PATH, doc_cursor["file_name"]
                 )
                 destingo = os.path.join(
                     settings.DOCUMENT_INVENTORY_PATH,
                     "deleted_" + doc_cursor["file_name"],
                 )
-                shutil.move(origen, destingo)
+                shutil.move(source, destingo)
                 print("se movio el documento del inventario")
                 print("doc[id]", doc["_id"])
 
@@ -749,21 +755,21 @@ class InventoryEdit(APIView):
                 print("cursor.modified_count", cursor2.modified_count)
                 if cursor2.modified_count > 0:
                     print("se inserto el documento en la coleccion")
-                    origen = os.path.join(
+                    source = os.path.join(
                         settings.TEMPORARY_UPLOAD_DIRECTORY, doc["file_name"]
                     )
-                    destino = os.path.join(
+                    destination = os.path.join(
                         settings.DOCUMENT_INVENTORY_PATH, doc["file_name"]
                     )
-                    shutil.copy(origen, destino)
+                    shutil.copy(source, destination)
 
-                    origen = os.path.join(
+                    source = os.path.join(
                         settings.TEMPORARY_UPLOAD_DIRECTORY, doc["file_name"]
                     )
-                    destino = os.path.join(
+                    destination = os.path.join(
                         settings.TEMPORARY_UPLOAD_DIRECTORY, "used_" + doc["file_name"]
                     )
-                    shutil.move(origen, destino)
+                    shutil.move(source, destination)
         except Exception as e:
             return Response(
                 {"error": "Can't create the new document registry " + str(e)},
@@ -813,13 +819,13 @@ class InventoryEdit(APIView):
                 if cursor.inserted_id:
                     print("se inseto el documento en la coleccion")
 
-                origen = os.path.join(
+                source = os.path.join(
                     settings.TEMPORARY_UPLOAD_DIRECTORY, doc["file_name"]
                 )
-                destino = os.path.join(
+                destination = os.path.join(
                     settings.DOCUMENT_INVENTORY_PATH, doc["file_name"]
                 )
-                shutil.copy(origen, destino)
+                shutil.copy(source, destination)
 
         except Exception as e:
             return Response(
