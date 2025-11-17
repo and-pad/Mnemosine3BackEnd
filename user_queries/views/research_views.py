@@ -1,16 +1,14 @@
 
-from hmac import new
 import json
 
-# from turtle import title
-from annotated_types import T
+
 from bson import ObjectId
 
 # from collections import defaultdict
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from user_queries.driver_database import mongo
+
 from user_queries.driver_database.mongo import Mongo
 
 from rest_framework.permissions import IsAuthenticated
@@ -31,7 +29,7 @@ from .researchs.pictures_handler import process_pictures
 from .researchs.footnotes_bibliographies_handler import process_footnotes_and_bibliographies
 from .researchs.request_data_handler import load_request_data
 from .researchs.save_history_handler import save_history_changes
-from .researchs.utils import (
+from .common.utils import (
     format_new_pic, 
     get_research_id, 
     get_module_id, 
@@ -142,8 +140,7 @@ class ResearchEdit(APIView):
         inv_modifications = list(
             mongo.connect("inventory_change_approvals").find(
                 {"piece_id": ObjectId(_id), "approved_rejected": None}
-            )
-        )
+            ))
 
         if inv_modifications:
             cursor_change_json["inventory_modifications"] = self.serialize_mongo_data(
@@ -215,13 +212,11 @@ class ResearchEdit(APIView):
         perm = permissions.get_permission(request.user)
         # Ya debe estar filtrado esto en el front end pero por refuerzo de seguridad
         # le buscamos en la base de datos
-
         if "editar_investigacion" not in perm:
             return Response(
                 "You have not permission to approve",
                 status=status.HTTP_401_UNAUTHORIZED,
-            )
-        
+            )        
         
         if not get_module_id("research", mongo):
             return Response(

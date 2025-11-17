@@ -1,6 +1,6 @@
 
 from bson import ObjectId
-from .utils import generate_random_file_name
+from ..common.utils import generate_random_file_name
 from django.conf import settings
 #import mongo
 from user_queries.driver_database.mongo import Mongo

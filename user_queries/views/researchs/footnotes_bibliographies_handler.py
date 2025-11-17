@@ -4,7 +4,7 @@ from bson import ObjectId
 from ..tools import AuditManager
 from user_queries.shemas.bibliography_shema import BibliographySchema
 from user_queries.shemas.footnote_shema import FootNoteSchema
-from .utils import get_research_id
+from ..common.utils import get_research_id
 
 def process_footnotes_and_bibliographies(request, _id, new_footnotes, new_bibliographies, changes_bibliographies, changes_footnotes):
         ids_saved_footnotes = None

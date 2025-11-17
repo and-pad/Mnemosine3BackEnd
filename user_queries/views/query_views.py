@@ -80,6 +80,7 @@ class UserQueryAll(APIView):
             if cursor_code["unique_code"] == _code:
                 return Response(status=status.HTTP_304_NOT_MODIFIED)
             new_code = cursor_code["unique_code"]  # Reutilizamos esta variable
+            
         # Limpiar bandera de generación si existía
         mongo.checkAndDropIfExistCollection("generation_status")
         # Obtener datos serializados sin el token

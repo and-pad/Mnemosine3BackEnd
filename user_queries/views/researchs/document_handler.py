@@ -3,12 +3,12 @@
 
 from bson import ObjectId
 from pymongo.errors import PyMongoError
-from .utils import generate_random_file_name
+from ..common.utils import generate_random_file_name
 from django.conf import settings
 from user_queries.driver_database.mongo import Mongo
 from ...shemas.document_shema import DocumentSchema
 from ..tools import AuditManager
-from .utils import add_delete_to_actual_document_file_name
+from ..common.utils import add_delete_to_actual_document_file_name
 
 
 #hay que quitar changes de aqui

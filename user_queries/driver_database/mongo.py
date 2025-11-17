@@ -44,8 +44,5 @@ class Mongo: #En estas entradas del contsructor puedes poner tu usuario y passwo
                 return {"collection": collection_name, "document": document}
         
         # Si no hay coincidencias, retornamos None o un valor indicativo
-        return None    
-        
-        
-
+        return None
         
