@@ -1,0 +1,214 @@
+from ..common.utils import generate_random_file_name
+from ..common.utils import add_delete_to_actual_document_file_name
+from django.conf import settings
+from user_queries.driver_database.mongo import Mongo
+from ...shemas.document_shema import DocumentSchema
+from ..tools import AuditManager
+from pymongo.errors import PyMongoError
+from bson import ObjectId
+def process_documents(request, changes_docs,  new_docs, _id, moduleId):
+    
+    changes_history = process_changed_docs(request,changes_docs)
+    
+    new_docs_history = process_new_docs(request, new_docs, _id, moduleId)   
+    
+    return {"changes": changes_history, "new_docs": new_docs_history}
+    
+
+
+def process_changed_docs(request, changes_docs):
+    """
+    Procesa documentos modificados, actualizando su información en la base de datos
+    y reemplazando archivos si se proporcionan.
+
+    Args:
+        request: HttpRequest con archivos en `FILES`.
+        changes_docs (dict): Diccionario con los documentos a actualizar.
+            Cada clave es un identificador único y el valor es un dict con metadatos:
+            {
+                "_id": str,
+                "name": dict (con "oldValue" y "newValue")
+            }
+
+    Returns:
+        dict: Diccionario con los documentos modificados bajo la clave
+              'changed_documents'.
+
+    Raises:
+        ValueError: Si faltan parámetros esenciales.
+        PyMongoError: Si ocurre un error al actualizar en MongoDB.
+        OSError: Si ocurre un error al guardar archivos en el servidor.
+    """
+    if not changes_docs:
+        return {"changed_documents": []}
+
+    changed_documents = {}
+
+    for key, meta in changes_docs.items():
+        print("meta", meta)
+        if "_id" not in meta:
+            raise ValueError(f"Documento con key={key} no tiene _id.")
+
+        # Procesar archivo si se subió uno
+        if file := request.FILES.get(f"files[changed_doc_{key}]"):
+            try:
+                # Generar nombre aleatorio y guardar archivo físicamente
+                print("file", file)
+                filename = generate_random_file_name(file.name)
+                save_doc_files(file, filename)
+
+                # Marcar el archivo anterior como eliminado si aplica
+                add_delete_to_actual_document_file_name(meta["_id"])
+
+                # Actualizar documento en DB
+                changed_documents = update_to_db(meta, request.user.id, file, filename)
+                print("changed_documents", changed_documents)
+                # Agregar info al registro de cambios                
+
+            except OSError as e:
+                raise OSError(f"No se pudo guardar el archivo '{file.name}': {e}")
+            except PyMongoError as e:
+                raise PyMongoError(f"Error al actualizar el documento en MongoDB: {e}")
+
+        else:
+            # Solo cambio de metadatos (nombre)
+            update_to_db(meta, request.user.id)
+            changed_documents.setdefault("changed_documents", []).append(
+                {
+                    "key": key,
+                    "_id": ObjectId(meta["_id"]),
+                    "name": meta["name"],
+                }
+            )
+
+    return changed_documents
+
+def save_doc_files(file, filename):
+        
+        file_path = f"{settings.DOCUMENT_RESTORATION_PATH}{filename}"
+        with open(file_path, "wb") as f:
+            for chunk in file.chunks():
+                f.write(chunk)
+
+
+def save_to_db(file, filename, name, _id, moduleId, user_id):
+    """
+    Guarda un documento en la colección 'documents'.
+
+    Args:
+        file: Objeto archivo cargado (con atributos `.size` y `.content_type`).
+        filename (str): Nombre original del archivo.
+        name (str): Nombre amigable para mostrar.
+        _id (str): ID de la pieza relacionada.
+        moduleId (str): ID del módulo relacionado.
+        user_id (str): ID del usuario que inserta el documento.
+
+    Returns:
+        ObjectId: ID del documento insertado en MongoDB.
+
+    Raises:
+        ValueError: Si faltan parámetros requeridos.
+        PyMongoError: Si ocurre un error al insertar en MongoDB.
+    """
+    
+    if not all([file, filename, name, _id, moduleId, user_id]):
+        raise ValueError("Todos los parámetros son obligatorios.")
+    
+    # Construcción del documento base
+    document = {
+        "name": name,
+        "file_name": filename,
+        "size": file.size,
+        "mime_type": file.content_type,
+        "piece_id": ObjectId(_id),
+        "module_id": ObjectId(moduleId),
+    }
+    try:
+        # Agregar información de auditoría, en este caso timestamps
+        document = AuditManager().add_timestampsInfo(document, user_id)
+        # Validar y preparar el esquema con Pydantic
+        schema = DocumentSchema(**document).model_dump()
+        # Insertar el documento en MongoDB
+        result = Mongo().connect("documents").insert_one(schema)
+        # Leemos documento para historial
+        inserted_doc = Mongo().connect("documents").find_one({"_id": result.inserted_id})
+        
+    except PyMongoError as e:
+        raise PyMongoError(f"Error al insertar el documento en MongoDB: {e}")
+    
+    return inserted_doc
+
+
+def update_to_db(meta, user_id, file=None, filename=None):
+    """
+    Actualiza un documento en la colección 'documents'.
+
+    Args:
+        meta (dict): Diccionario con la siguiente estructura:
+            {
+                "_id": str (ID del documento a actualizar),
+                "name": dict (con claves "oldValue" y "newValue" para el nombre)
+            }
+        user_id (str): ID del usuario que actualiza el documento.
+        file (Optional[UploadedFile]): Archivo cargado (con atributos `.size` y
+            `.content_type`) para reemplazar el actual. Si no se proporciona, se
+            actualizará solo el nombre del documento.
+        filename (Optional[str]): Nombre del archivo cargado (si se proporciona).
+
+    Returns:
+        dict: Diccionario con los estados del documento antes y después de la
+            actualización, con claves "before_update" y "after_update".
+
+    Raises:
+        ValueError: Si faltan parámetros requeridos.
+        PyMongoError: Si ocurre un error al actualizar en MongoDB.
+    """
+    # Validación básica de parámetros
+    if not meta or "_id" not in meta or "name" not in meta or "newValue" not in meta["name"]:
+        raise ValueError("El parámetro 'meta' es inválido o incompleto.")
+    if file and not filename:
+        raise ValueError("Si se proporciona un archivo, también se debe proporcionar 'filename'.")
+    if not user_id:
+        raise ValueError("El parámetro 'user_id' es obligatorio.")
+
+    # Construcción del documento a actualizar
+    if file:
+        document = {
+            "name": meta["name"]["newValue"],
+            "file_name": filename,
+            "size": file.size,
+            "mime_type": file.content_type,
+        }
+    else:
+        document = {"name": meta["name"]["newValue"]}
+
+    try:
+        # Leer documento actual para historial
+        before_update = Mongo().connect("documents").find_one({"_id": ObjectId(meta["_id"])})
+        if not before_update:
+            raise ValueError(f"No se encontró el documento con _id={meta['_id']}")
+
+        # Agregar timestamps de actualización
+        document = AuditManager().add_updateInfo(document, user_id)
+
+        # Validar con Pydantic y excluir campos None
+        schema = DocumentSchema(**document).model_dump(exclude_none=True)
+
+        # Actualizar el documento en MongoDB
+        result = Mongo().connect("documents").update_one(
+            {"_id": ObjectId(meta["_id"])},
+            {"$set": schema},
+        )
+
+        if result.matched_count == 0:
+            raise PyMongoError(f"No se encontró ningún documento para actualizar con _id={meta['_id']}")
+
+        # Leer documento actualizado para historial
+        after_update = Mongo().connect("documents").find_one({"_id": ObjectId(meta["_id"])})
+        if not after_update:
+            raise PyMongoError(f"Documento actualizado no se pudo leer después del update _id={meta['_id']}")
+
+        return {"before_update": before_update, "after_update": after_update}
+
+    except PyMongoError as e:
+        raise PyMongoError(f"Error al actualizar el documento en MongoDB: {e}")

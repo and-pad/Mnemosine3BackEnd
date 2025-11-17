@@ -4,7 +4,6 @@ import random
 import string
 import shutil
 from bson import ObjectId
-from user_queries.driver_database import mongo
 from user_queries.driver_database.mongo import Mongo
 from ..tools import AuditManager
 from django.conf import settings
