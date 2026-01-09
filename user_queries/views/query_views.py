@@ -11,6 +11,8 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
+
+from authentication.custom_jwt import CustomJWTAuthentication
 from time import sleep
 # Módulos locales
 from user_queries.driver_database.mongo import Mongo
@@ -22,6 +24,7 @@ from user_queries.mongo_queries import (
 )
 
 class UserQueryAll(APIView):
+    authentication_classes = [CustomJWTAuthentication]
     permission_classes = [IsAuthenticated]
     dbCollection = "pieces"
     dbCollectionPics = "photographs"
@@ -100,6 +103,7 @@ class UserQueryAll(APIView):
 
 class UserQueryDetail(APIView):
     permission_classes = [IsAuthenticated]
+    authentication_classes = [CustomJWTAuthentication]
 
     def get(self, request, _id):
         if not _id:

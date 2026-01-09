@@ -18,6 +18,7 @@ from docx.shared import Mm
 
 # Módulos locales
 from user_queries.driver_database.mongo import Mongo
+from authentication.custom_jwt import CustomJWTAuthentication
 
 
 
@@ -46,6 +47,7 @@ class Tools:
 
 class GenerateDetailPieceDocx(APIView):
     permission_classes = [IsAuthenticated]
+    authentication_classes = [CustomJWTAuthentication]
 
     def post(self, request):
         _id = request.data.get("_id")

@@ -5,9 +5,9 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.permissions import IsAuthenticated
+from authentication.custom_jwt import CustomJWTAuthentication
 
-
-from bson.objectid import ObjectId
+from bson import ObjectId
 from user_queries.driver_database.mongo import Mongo
 import json
 import os
@@ -32,6 +32,7 @@ from user_queries.mongo_queries import (
 
 class InventoryEdit(APIView):
     permission_classes = [IsAuthenticated]
+    authentication_classes = [CustomJWTAuthentication]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     # authentication_classes = [JWTAuthentication]
@@ -463,7 +464,7 @@ class InventoryEdit(APIView):
             # Add timestamps and approval info to the changes
             timestamped_changes = timestamps.add_timestampsUpdate(combined_changes)
             timestamped_changes = timestamps.add_approvalInfo(
-                timestamped_changes, user_id, _id
+                timestamped_changes, ObjectId(user_id), _id
             )
             
             timestamped_changes["changed_by_module_id"] = ObjectId(self.get_module_id("inventory", mongo))
@@ -615,7 +616,7 @@ class InventoryEdit(APIView):
                     "mime_type": pic["mime_type"],
                 }
                 audit = AuditManager()
-                newpic = audit.add_photoInfo(newpic, user_id)
+                newpic = audit.add_photoInfo(newpic, ObjectId(user_id))
                 mongo.connect("photographs").insert_one(newpic)
                 source = os.path.join(
                     settings.TEMPORARY_UPLOAD_DIRECTORY, pic["file_name"]
@@ -812,7 +813,7 @@ class InventoryEdit(APIView):
                 }
                 audit = AuditManager()
                 print("audit", audit)
-                newdoc = audit.add_documentInfo(newdoc, user_id)
+                newdoc = audit.add_documentInfo(newdoc, ObjectId(user_id))
                 print("newdocF", newdoc)
                 cursor = mongo.connect("documents").insert_one(newdoc)
                 print("newdoc", newdoc)

@@ -10,12 +10,14 @@ class AuditManager:
     tz = pytz.timezone( settings.AUDIT_MANAGER_TIME_ZONE)
 
     def add_timestampsUpdate(self, object):
-        object["created_at"] = datetime.now(self.tz)
-        object["updated_at"] = datetime.now(self.tz)
+        now = datetime.now(self.tz)
+        if "created_at" not in object or object["created_at"] is None:        
+            object["created_at"] = now        
+        object["updated_at"] = now
         return object
 
     def add_approvalInfo(self, object, user_id, _id):
-        object["piece_id"] = ObjectId(_id)
+        object["piece_id"] = _id
         object["created_by"] = user_id
         object["approved_rejected_by"] = None
         object["approved_rejected"] = None

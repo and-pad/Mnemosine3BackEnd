@@ -13,9 +13,9 @@ class VenuesSchema(BaseModel):
     deleted_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
-    created_by: Optional[int] = None
-    updated_by: Optional[int] = None
-    deleted_by: Optional[int] = None
+    created_by: Optional[ObjectId] = None
+    updated_by: Optional[ObjectId] = None
+    deleted_by: Optional[ObjectId] = None
 
     class Config:
         arbitrary_types_allowed = True 

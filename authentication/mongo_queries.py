@@ -1,20 +1,21 @@
-#from bson import ObjectId
+from bson import ObjectId
 
 def getPermissions(user):
+    user_id = user.id if hasattr(user, "id") else user["_id"]
     permissions = [
-            {'$match':{'model_id':user.id}},
+            {'$match':{'model_id':ObjectId(user_id)}},
             {                
                 '$lookup':{
                     "from": "roles",
                     "localField": "role_id",
-                    "foreignField": "id",
+                    "foreignField": "_id",
                     "as": "roles_info"                    
                     }                
                 },
             {
                 '$lookup':{
                     'from':'role_has_permissions',
-                    'localField': 'roles_info.id',
+                    'localField': 'roles_info._id',
                     'foreignField': 'role_id', 
                     'as': 'role_permissions_info'
                 }                
@@ -23,7 +24,7 @@ def getPermissions(user):
                 '$lookup':{
                     'from':'permissions',
                     'localField': 'role_permissions_info.permission_id',
-                    'foreignField': 'id',
+                    'foreignField': '_id',
                     'as':'permissions_info'
                 }
             },     
@@ -39,7 +40,7 @@ def getPermissions(user):
                 '$lookup':{
                     'from':'permissions',
                     'localField': 'user_has_permissions_info.permission_id',
-                    'foreignField': 'id',
+                    'foreignField': '_id',
                     'as':'overwrite_permissions_info'
                 }
             },                                  

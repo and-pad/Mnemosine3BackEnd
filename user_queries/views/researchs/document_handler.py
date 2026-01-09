@@ -9,14 +9,15 @@ from user_queries.driver_database.mongo import Mongo
 from ...shemas.document_shema import DocumentSchema
 from ..tools import AuditManager
 from ..common.utils import add_delete_to_actual_document_file_name
+from user_queries.dataclasses.documents import DocumentsContext
 
 
 #hay que quitar changes de aqui
-def process_documents(request, changes_docs,  new_docs, _id, moduleId):
+def process_documents(ctx: DocumentsContext):
     
-    changes_history = process_changed_docs(request,changes_docs)
+    changes_history = process_changed_docs(ctx.request,ctx.changes_docs, ctx.mongo, ctx.session)
     
-    new_docs_history = process_new_docs(request, new_docs, _id, moduleId)   
+    new_docs_history = process_new_docs(ctx.request, ctx.new_docs, ctx._id, ctx.moduleId, ctx.mongo, ctx.session)   
     
     return {"changes": changes_history, "new_docs": new_docs_history}
     
@@ -28,7 +29,7 @@ def save_doc_files(file, filename):
             for chunk in file.chunks():
                 f.write(chunk)
 
-def save_to_db(file, filename, name, _id, moduleId, user_id):
+def save_to_db(file, filename, name, _id, moduleId, user_id, mongo, session):
     """
     Guarda un documento en la colección 'documents'.
 
@@ -66,9 +67,9 @@ def save_to_db(file, filename, name, _id, moduleId, user_id):
         # Validar y preparar el esquema con Pydantic
         schema = DocumentSchema(**document).model_dump()
         # Insertar el documento en MongoDB
-        result = Mongo().connect("documents").insert_one(schema)
+        result = mongo.connect("documents").insert_one(schema, session=session)
         # Leemos documento para historial
-        inserted_doc = Mongo().connect("documents").find_one({"_id": result.inserted_id})
+        inserted_doc = mongo.connect("documents").find_one({"_id": result.inserted_id}, session=session)
         
     except PyMongoError as e:
         raise PyMongoError(f"Error al insertar el documento en MongoDB: {e}")
@@ -77,7 +78,7 @@ def save_to_db(file, filename, name, _id, moduleId, user_id):
 
 
 
-def update_to_db(meta, user_id, file=None, filename=None):
+def update_to_db(meta, user_id, mongo, session, file=None, filename=None):
     """
     Actualiza un documento en la colección 'documents'.
 
@@ -122,7 +123,7 @@ def update_to_db(meta, user_id, file=None, filename=None):
 
     try:
         # Leer documento actual para historial
-        before_update = Mongo().connect("documents").find_one({"_id": ObjectId(meta["_id"])})
+        before_update = mongo.connect("documents").find_one({"_id": ObjectId(meta["_id"])}, session=session)
         if not before_update:
             raise ValueError(f"No se encontró el documento con _id={meta['_id']}")
 
@@ -133,16 +134,17 @@ def update_to_db(meta, user_id, file=None, filename=None):
         schema = DocumentSchema(**document).model_dump(exclude_none=True)
 
         # Actualizar el documento en MongoDB
-        result = Mongo().connect("documents").update_one(
+        result = mongo.connect("documents").update_one(
             {"_id": ObjectId(meta["_id"])},
             {"$set": schema},
+            session=session
         )
 
         if result.matched_count == 0:
             raise PyMongoError(f"No se encontró ningún documento para actualizar con _id={meta['_id']}")
 
         # Leer documento actualizado para historial
-        after_update = Mongo().connect("documents").find_one({"_id": ObjectId(meta["_id"])})
+        after_update = mongo.connect("documents").find_one({"_id": ObjectId(meta["_id"])},session=session)
         if not after_update:
             raise PyMongoError(f"Documento actualizado no se pudo leer después del update _id={meta['_id']}")
 
@@ -152,7 +154,7 @@ def update_to_db(meta, user_id, file=None, filename=None):
         raise PyMongoError(f"Error al actualizar el documento en MongoDB: {e}")
 
 
-def process_new_docs(request, new_docs, _id, moduleId):
+def process_new_docs(request, new_docs, _id, moduleId, mongo, session):
     """
     Procesa y guarda documentos nuevos asociados a una pieza.
     Si falla la inserción en la DB, aborta todo el proceso.
@@ -182,7 +184,7 @@ def process_new_docs(request, new_docs, _id, moduleId):
 
                 # Guardar en la base de datos (si falla, aborta todo)
                 doc_saved = save_to_db(
-                    file, filename, doc["name"], _id, moduleId, request.user.id
+                    file, filename, doc["name"], _id, moduleId, ObjectId(request.user.id), mongo, session
                 )
                 inserted_docs.append(doc_saved)
 
@@ -191,7 +193,7 @@ def process_new_docs(request, new_docs, _id, moduleId):
             
 
 
-def process_changed_docs(request, changes_docs):
+def process_changed_docs(request, changes_docs, mongo, session):
     """
     Procesa documentos modificados, actualizando su información en la base de datos
     y reemplazando archivos si se proporcionan.
@@ -233,10 +235,10 @@ def process_changed_docs(request, changes_docs):
                 save_doc_files(file, filename)
 
                 # Marcar el archivo anterior como eliminado si aplica
-                add_delete_to_actual_document_file_name(meta["_id"])
+                add_delete_to_actual_document_file_name(meta["_id"], "research")
 
                 # Actualizar documento en DB
-                changed_documents = update_to_db(meta, request.user.id, file, filename)
+                changed_documents = update_to_db(meta, ObjectId(request.user.id), mongo, session, file, filename)
                 print("changed_documents", changed_documents)
                 # Agregar info al registro de cambios                
 
@@ -247,7 +249,7 @@ def process_changed_docs(request, changes_docs):
 
         else:
             # Solo cambio de metadatos (nombre)
-            update_to_db(meta, request.user.id)
+            update_to_db(meta, ObjectId(request.user.id), mongo, session)
             changed_documents.setdefault("changed_documents", []).append(
                 {
                     "key": key,

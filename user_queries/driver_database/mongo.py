@@ -8,7 +8,10 @@ class Mongo: #En estas entradas del contsructor puedes poner tu usuario y passwo
         self.user = kwargs.get("user_name", "usuario1")
         self.password = kwargs.get("password", "123456")
         self.port = kwargs.get("port", "27017")
-        self.client = pymongo.MongoClient(f"mongodb://{self.user}:{self.password}@localhost:{self.port}/")
+        self.client = pymongo.MongoClient(f"mongodb://{self.user}:{self.password}@localhost:{self.port}/?replicaSet=rs0")
+        #self.clientSession = pymongo.MongoClient(
+        #f"mongodb://{self.user}:{self.password}@localhost:{self.port}/?replicaSet=rs0"
+        #)
         
         
     def connect(self, db_collection):                
@@ -45,4 +48,10 @@ class Mongo: #En estas entradas del contsructor puedes poner tu usuario y passwo
         
         # Si no hay coincidencias, retornamos None o un valor indicativo
         return None
+    
+    def collection(self, db_collection):
+        return self.client[self.db_name][db_collection]
+        
+    def start_session(self):
+        return self.client.start_session()
         

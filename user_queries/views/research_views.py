@@ -1,9 +1,5 @@
-
 import json
-
-
 from bson import ObjectId
-
 # from collections import defaultdict
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -17,7 +13,7 @@ from authentication.views import Permission
 from user_queries.mongo_queries import (
     PIECES_ALL,
     inventory_research_edit,
-    research_edit,)
+    research_edit)
 
 from types import SimpleNamespace
 
@@ -29,6 +25,7 @@ from .researchs.pictures_handler import process_pictures
 from .researchs.footnotes_bibliographies_handler import process_footnotes_and_bibliographies
 from .researchs.request_data_handler import load_request_data
 from .researchs.save_history_handler import save_history_changes
+from authentication.custom_jwt import CustomJWTAuthentication
 from .common.utils import (
     format_new_pic, 
     get_research_id, 
@@ -38,10 +35,18 @@ from .common.utils import (
     store_pic_changes, 
     format_research_data
     )
+from user_queries.dataclasses.footnotes_and_bibliographies import FootnotesBibliographiesContext
+from user_queries.dataclasses.documents import DocumentsContext
+from user_queries.dataclasses.pictures import PicturesContext
+from user_queries.dataclasses.research_inventory_data import ResearchInventoryContext
+from user_queries.dataclasses.research_changes_data import ResearchContext
+from user_queries.dataclasses.research_history_changes import HistoryChangesContext
+
 
 class ResearchEdit(APIView):
 
     permission_classes = [IsAuthenticated]
+    authentication_classes = [CustomJWTAuthentication]
 
     inventory_fields = [
         "gender_id",
@@ -204,8 +209,6 @@ class ResearchEdit(APIView):
     def serialize_mongo_data(self, data):
         """Serializa datos de MongoDB a JSON serializable."""
         return json.loads(json.dumps(data, default=str))
-
-
         
     def patch_request_validation(self, request, _id, mongo):
         permissions = Permission()
@@ -216,8 +219,8 @@ class ResearchEdit(APIView):
             return Response(
                 "You have not permission to approve",
                 status=status.HTTP_401_UNAUTHORIZED,
-            )        
-        
+            )
+                
         if not get_module_id("research", mongo):
             return Response(
                 {"response": "Módulo no encontrado"}, status=status.HTTP_400_BAD_REQUEST
@@ -228,16 +231,17 @@ class ResearchEdit(APIView):
         return mongo.connect("researchs").find_one(
             {"piece_id": ObjectId(_id), "deleted_at": None}
         )
-    def validate_research(self, research, request, _id, mongo):
+    
+    def validate_research(self, research, request, _id, mongo, session):
         is_new_research = False
         if not research:
             is_new_research = True
             timestamps = AuditManager()
             research_data = {"piece_id": ObjectId(_id)}
             research_data = timestamps.add_timestampsInfo(
-                research_data, request.user.id
+                research_data, ObjectId(request.user.id)
             )             
-            self.create_research(ResearchSchema(**research_data))
+            self.create_research(ResearchSchema(**research_data), mongo, session)
             research = mongo.connect("researchs").find_one(
                 {"piece_id": ObjectId(_id), "deleted_at": None}
             )
@@ -249,51 +253,140 @@ class ResearchEdit(APIView):
 
     def patch(self, request, _id):
         mongo = Mongo()
+        with mongo.start_session() as session:
+            try:
+                with session.start_transaction():
         
-        research = self.patch_request_validation(request, _id, mongo)
-        is_new_research, research = self.validate_research(research, request, _id, mongo)        
-        
-        (changes, pics_new, changed_pics, changes_pics_inputs, new_footnotes, new_bibliographies, changes_bibliographies, changes_footnotes, new_docs, changes_docs) = load_request_data(request)        
-        #print("raw changes_pics inputs", changes_pics_inputs)    
-        ( ids_saved_footnotes, ids_saved_bibliographies, ids_updated_footnotes, before_update_footnotes, ids_updated_bibliographies, before_update_bibliographies) = process_footnotes_and_bibliographies(request, _id, new_footnotes, new_bibliographies, changes_bibliographies,changes_footnotes)        
-        #print("changes_docs", changes_docs)
-        documents = process_documents(request, changes_docs,  new_docs, _id, get_module_id("research", mongo))
-        print("documents", documents)
-        data_pics = process_pictures(request, pics_new, changed_pics,changes_pics_inputs )
-        #print("changes post proccess_pics", changes)
-        #print("New data_pics", data_pics)
-        
-        # Si no hay cambios, no se hace nada
-        
-        user_id = request.user.id        
-       
-        """
-        if changes_pics_inputs and len(changes_pics_inputs) > 0:
-            changes.setdefault("changes_pics_inputs", changes_pics_inputs)
-        """
-        if changes or data_pics:
-            self.process_inventory_data(changes, user_id, _id)
-            result = self.save_research_changes(changes, data_pics, user_id, _id, is_new_research)
+                    research = self.patch_request_validation(request, _id, mongo)
 
-        else:
-            result = SimpleNamespace(modified_count=0)            
-        
-           
-        changes_data = {
-        "changes": changes,
-        "changes_pics_inputs": changes_pics_inputs,
-        "changed_pics": changed_pics,
-        "new_footnotes": new_footnotes,
-        "ids_saved_footnotes": ids_saved_footnotes,
-        "new_bibliographies": new_bibliographies,
-        "changes_footnotes": changes_footnotes,
-        "before_update_footnotes": before_update_footnotes,
-        "changes_bibliographies": changes_bibliographies,
-        "before_update_bibliographies": before_update_bibliographies,
-        "documents": documents
-        }
-        
-        save_history_changes(_id, user_id, research, is_new_research, changes_data)
+                    is_new_research, research = self.validate_research(research, request, _id, mongo, session)        
+                    
+                    (changes,
+                     pics_new,
+                     changed_pics,
+                     changes_pics_inputs,
+                     new_footnotes,
+                     new_bibliographies,
+                     changes_bibliographies,
+                     changes_footnotes,
+                     new_docs,
+                     changes_docs
+                     ) = load_request_data(request)
+                    #print("raw changes_pics inputs", changes_pics_inputs)    
+                    
+                    ctx_fb = FootnotesBibliographiesContext(
+                        request =                   request,
+                        _id =                       ObjectId(_id),
+                        new_footnotes =             new_footnotes,
+                        new_bibliographies =        new_bibliographies,
+                        changes_bibliographies =    changes_bibliographies,
+                        changes_footnotes =         changes_footnotes,
+                        mongo =                     mongo,
+                        session =                   session
+                        )                                       
+                    
+                    
+                    ( ids_saved_footnotes,
+                      ids_saved_bibliographies,
+                      ids_updated_footnotes,
+                      before_update_footnotes,
+                      ids_updated_bibliographies,
+                      before_update_bibliographies
+                      # Procesa las notas al pie y bibliografías, guarda en la base de datos,
+                      # regresa los ids de los nuevos y actualizados
+                      ) = process_footnotes_and_bibliographies(ctx_fb)
+                    
+                    ctx_docs = DocumentsContext(
+                        request =        request,
+                        changes_docs =   changes_docs,
+                        new_docs =       new_docs,
+                        _id =            ObjectId(_id),
+                        moduleId =       get_module_id("research", mongo),
+                        mongo =          mongo,
+                        session =        session
+                    )                    
+                    
+                    # Procesa los documentos, guarda los archivos en el servidor,
+                    # guarda en la base de datos, regresa los datos para el historial
+                    documents = process_documents(ctx_docs)
+
+                    ctx_pics = PicturesContext(
+                        request =               request,                       
+                        pics_new =              pics_new,
+                        changed_pics =          changed_pics,
+                        changes_pics_inputs =   changes_pics_inputs,                            
+                    )
+
+                    
+                    # procesa las fotos, guarda los archivos en el servidor,
+                    # regresa los datos para guardar en la base de datos
+                    data_pics = process_pictures(ctx_pics)                    
+                    # Si no hay cambios, no se hace nada
+                    
+                    user_id = request.user.id        
+                
+                    """
+                    if changes_pics_inputs and len(changes_pics_inputs) > 0:
+                        changes.setdefault("changes_pics_inputs", changes_pics_inputs)
+                    """
+
+                    ctx_re_inv = ResearchInventoryContext(
+                        data =       changes,
+                        user_id =    ObjectId(user_id),
+                        _id =        ObjectId(_id),
+                        mongo =      mongo,
+                        session =    session
+                    )
+
+                    ctx_res = ResearchContext(
+                        changes =            changes,
+                        data_pics =          data_pics,
+                        user_id =            ObjectId(user_id),
+                        _id =                ObjectId(_id),
+                        is_new_research =    is_new_research,
+                        mongo =              mongo,
+                        session =            session
+                    )
+
+                    if changes or data_pics:
+                        self.process_inventory_data(ctx_re_inv)
+                        result = self.save_research_changes(ctx_res)
+
+                    else:
+                        result = SimpleNamespace(modified_count=0)            
+                    
+                    
+                    ctx_history = HistoryChangesContext(
+                        changes =                       changes,
+                        data_pics =                     data_pics,
+                        changes_pics_inputs =           changes_pics_inputs,
+                        changed_pics =                  changed_pics,
+                        new_footnotes =                 new_footnotes,
+                        ids_saved_footnotes =           ids_saved_footnotes,
+                        new_bibliographies =            new_bibliographies,
+                        changes_footnotes =             changes_footnotes,
+                        before_update_footnotes =       before_update_footnotes,
+                        changes_bibliographies =        changes_bibliographies,
+                        before_update_bibliographies =  before_update_bibliographies,
+                        documents =                     documents,
+                        _id =                           ObjectId(_id),
+                        user_id =                       ObjectId(user_id),
+                        research =                      research,
+                        is_new_research =               is_new_research,
+                        mongo =                         mongo,
+                        session =                       session
+                    )
+     
+                    
+                    save_history_changes(ctx_history)
+            
+            except Exception as e:       
+                # Si hubo error dentro del with start_transaction
+                # Mongo aborta la transacción automáticamente.
+                print(f"Error al procesar todo: {e}")
+                raise
+
+
         
         return Response(
             {
@@ -315,123 +408,140 @@ class ResearchEdit(APIView):
         print(changes)
         return changes
 
-    def process_inventory_data(self, data, user_id, _id):        
+    def process_inventory_data(self, ctx: ResearchInventoryContext):        
         if inventoryData := {
             key: value
-            for key, value in data.items()
+            for key, value in ctx.data.items()
             if key in self.inventory_fields
         }:            
             
-            self.save_approval_inventory_data(inventoryData, user_id, _id)
+            self.save_approval_inventory_data(inventoryData, ctx.user_id, ctx._id, ctx.mongo, ctx.session)
 
-    def save_approval_inventory_data(self, data, user_id, _id):
-        mongo = Mongo()
-
+    def save_approval_inventory_data(self, data, user_id, _id, mongo, session):
+        
         timestamps = AuditManager()
 
-        InventoryChanges = mongo.connect("inventory_change_approvals")
-        combined_changes = {}
-        if data:
-            combined_changes = {**combined_changes, **data}
+        try:
 
-        timestamped_changes = timestamps.add_timestampsUpdate(combined_changes)
-        timestamped_changes = timestamps.add_approvalInfo(
-            timestamped_changes, user_id, _id
-        )
-        timestamped_changes["changed_by_module_id"] = ObjectId(get_module_id("research", mongo))
-        # Insert the timestamped changes into the inventory changes collection
-        InventoryChanges.insert_one(timestamped_changes)
+            InventoryChanges = mongo.connect("inventory_change_approvals")
+            combined_changes = {}
+            if data:
+                combined_changes = {**combined_changes, **data}
 
-    def create_research(self, research_data: ResearchSchema):
+            timestamped_changes = timestamps.add_timestampsUpdate(combined_changes)
+            timestamped_changes = timestamps.add_approvalInfo(
+                timestamped_changes, user_id, _id
+            )
+            timestamped_changes["changed_by_module_id"] = get_module_id("research", mongo)
+            # Insert the timestamped changes into the inventory changes collection
+            InventoryChanges.insert_one(timestamped_changes, session=session)
+
+        except Exception as e:
+            print(f"Error al guardar cambios en la base de datos: {e}")
+            raise e
+
+    def create_research(self, research_data: ResearchSchema, mongo , session):
         # Convertimos el objeto de Pydantic en diccionario limpio
         doc = research_data.model_dump(
             exclude_none=False
         )  # o exclude_defaults=True si quieres aún más limpio        
-        researchs_collection = Mongo().connect("researchs")
-        result = researchs_collection.insert_one(doc)
+        researchs_collection = mongo.connect("researchs")
+        result = researchs_collection.insert_one(doc, session=session)
         print("result create", result.inserted_id)
         return result
 
-    def save_research_changes(self, changes, data_pics, user_id, _id, is_new_research):
+    def save_research_changes(self, ctx: ResearchContext):
+        changes = ctx.changes
+        data_pics = ctx.data_pics
+        user_id = ctx.user_id
+        _id = ctx._id
+        is_new_research = ctx.is_new_research
+        mongo = ctx.mongo
+        session = ctx.session
         
-        research = Mongo().connect("researchs").find_one({"piece_id": ObjectId(_id), "deleted_at": None})
+        research = mongo.connect("researchs").find_one({"piece_id": ObjectId(_id), "deleted_at": None} ,session=session)
         researchData = format_research_data(changes, self.inventory_fields )
         # Siempre agregar usuario que actualizó
         if not is_new_research:
-            researchData["updated_by"] = user_id
+            researchData["updated_by"] = ObjectId(user_id)
         print("researchData", researchData)
         # Aplicar actualización
-        result = Mongo().connect("researchs").update_one({"_id": research["_id"]}, {"$set": researchData})       
-        self._process_all_pics(data_pics, user_id, _id)
-        self._refresh_changes_in_db(_id)
+        result = mongo.connect("researchs").update_one({"_id": research["_id"]}, {"$set": ResearchSchema(**researchData).model_dump(exclude_none=True)}, session=session)       
+        self._process_all_pics(data_pics, user_id, _id, mongo, session)
+        self._refresh_changes_in_db(_id, mongo, session)
 
         return result    
     
-    def _refresh_changes_in_db(self, _id):
-        piece = Mongo().connect("pieces")
-        pieces_search = Mongo().connect("pieces_search")       
-        #PIECES_ALL es una consulta mongo grande para obtener todos los datos para enviar al front end
-        #Aqui se le agrega el filtro por id de pieza, para que solo se actualice la pieza que se ha editado
-        PIECES_ALL.insert(0, {"$match": {"_id": ObjectId(_id)}})        
-        cursor = piece.aggregate(PIECES_ALL)
-        # print("cursor", cursor)
+    def _refresh_changes_in_db(self, _id, mongo, session):
+        piece = mongo.connect("pieces")
+        pieces_search = mongo.connect("pieces_search")
+
+        # Asegúrate de no mutar PIECES_ALL Global permanentemente
+        pipeline = [{"$match": {"_id": ObjectId(_id)}}] + PIECES_ALL
+
+        # Ejecutar el aggregate con sesión
+        cursor = piece.aggregate(pipeline, session=session)
+
         for document in cursor:
-            #reemplazamos el documento porque ha sido editado
-            pieces_search.replace_one({"_id": ObjectId(_id)}, document)
-        # borramos la coleccion de busqueda de piezas serializadas
-        # para que se vuelva a crear con los datos actualizados
-        Mongo().checkAndDropIfExistCollection("pieces_search_serialized")
+            pieces_search.replace_one(
+                {"_id": ObjectId(_id)},
+                document,
+                session=session
+            )
+        #mongo.checkAndDropIfExistCollection("pieces_search_serialized")
             
-    def _process_all_pics(self, data_pics, user_id, _id):
+    def _process_all_pics(self, data_pics, user_id, _id, mongo, session):
         if data_pics.get("new_pics"):
-            print("new_pics", data_pics["new_pics"])
-        self.process_new_pics(data_pics, user_id, _id)        
+            print("new_pics", data_pics["new_pics"])            
+            self.process_new_pics(data_pics, user_id, _id, mongo, session)        
         
         if data_pics.get("changed_pics"):
             print("changed_pics", data_pics["changed_pics"])
-            self.process_changed_pics(data_pics, user_id)
+            self.process_changed_pics(data_pics, user_id, mongo, session)
 
 
         if data_pics.get("changes_pics_inputs"):
             print("changes_pics_inputs", data_pics["changes_pics_inputs"])
-            self.process_changed_pics_inputs(data_pics, user_id )
+            self.process_changed_pics_inputs(data_pics, user_id, mongo, session )
                 # Aquí podrías procesar los cambios de entradas de fotos si es necesario
-    def process_new_pics(self, cursor_change, user_id, _id):
-        mongo = Mongo()
-        #try:
-        moduleId = get_module_id("research", mongo)   
-        #print("cursor_change", cursor_change)
-        if cursor_change.get("new_pics") and len(cursor_change["new_pics"]) > 0:
-            for pic in cursor_change["new_pics"]:
-                # este es el objeto como debe ser guardado en la base, su shema.                                                             
-                mongo.connect("photographs").insert_one(PhotographSchema(**format_new_pic(pic, user_id, moduleId, _id)).model_dump())                
-                process_thumbnail(pic)               
-            #except Exception as e:
-                #print(f"Error al procesar nuevas fotos: {e}")
-                # Habra errores en caso de falta de permisos o que no exista la carpeta
-                # se debe corregir el error ya que no se puede guardar
-                #return e
+    def process_new_pics(self, cursor_change, user_id, _id, mongo, session):
+        
+        try:
+            moduleId = get_module_id("research", mongo)   
+            #print("cursor_change", cursor_change)
+            if cursor_change.get("new_pics") and len(cursor_change["new_pics"]) > 0:
+                for pic in cursor_change["new_pics"]:
+                    # este es el objeto como debe ser guardado en la base, su shema.                                                             
+                    result = mongo.connect("photographs").insert_one(PhotographSchema(**format_new_pic(pic, user_id, moduleId, _id)).model_dump(), session=session)                
+                    pic["_id"] = result.inserted_id
+                    process_thumbnail(pic, "research")               
+        except Exception as e:
+            print(f"Error al procesar nuevas fotos: {e}")
+            # Habra errores en caso de falta de permisos o que no exista la carpeta
+            # se debe corregir el error ya que no se puede guardar
+            return e
         
    
-    def process_changed_pics(self, cursor_change, user_id):
-        mongo = Mongo()
+    def process_changed_pics(self, cursor_change, user_id, mongo, session):
+        
         try:
             #moduleId = get_module_id("research", mongo)
             #print("cursor_change", cursor_change["changed_pics"])
-            for  pic in cursor_change["changed_pics"]:
+            for pic in cursor_change["changed_pics"]:
                 photo_cursor = mongo.connect("photographs").find_one(
-                    {"_id": ObjectId(pic["_id"])}
+                    {"_id": ObjectId(pic["_id"])},
+                    session=session
                 )
-                add_delete_to_actual_photo_file_name(photo_cursor["file_name"])                
-                store_pic_changes(pic, user_id)                
-                process_thumbnail(pic)
+                add_delete_to_actual_photo_file_name(photo_cursor["file_name"], "research")                
+                store_pic_changes(pic, user_id, mongo, session)                
+                process_thumbnail(pic, "research")
                 #if cursor.modified_count > 0:
                     #print(f"Foto actualizada: {pic['_id']}")
 
         except Exception as e:
             print(f"Error al procesar fotos cambiadas: {e}")
     
-    def process_changed_pics_inputs(self, cursor_change, user_id):      
+    def process_changed_pics_inputs(self, cursor_change, user_id, mongo, session):      
         
         try:        
             for index,pic in cursor_change["changes_pics_inputs"].items():
@@ -447,11 +557,12 @@ class ResearchEdit(APIView):
                 PhotographSchemaChanges = PhotographSchema(**to_update)
                 print("pic_id", pic["_id"])
                 print(PhotographSchemaChanges.model_dump(exclude_none=True))
-                Mongo().connect("photographs").update_one(
+                mongo.connect("photographs").update_one(
                     {"_id": ObjectId(pic["_id"])},
                     {
                         "$set": PhotographSchemaChanges.model_dump(exclude_none=True),
                     },
+                    session=session
                 )
                 
         except Exception as e:

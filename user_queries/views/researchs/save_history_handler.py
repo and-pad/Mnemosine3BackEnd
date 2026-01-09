@@ -1,43 +1,47 @@
 from hmac import new
 from bson import ObjectId
+from requests import session
 from user_queries.driver_database.mongo import Mongo
 from ..tools import AuditManager
 from user_queries.shemas.research_update_payload import ResearchUpdatePayload
 from user_queries.views.common.utils import get_research_id
+from user_queries.dataclasses.research_history_changes import HistoryChangesContext
 
-def save_history_changes(_id, user_id, research, is_new_research, changes_data):
+def save_history_changes(ctx: HistoryChangesContext):
         
-        changes = changes_data.get("changes")
-        changes_pics_inputs = changes_data.get("changes_pics_inputs")
-        changed_pics = changes_data.get("changed_pics")
-        new_footnotes = changes_data.get("new_footnotes")
-        ids_saved_footnotes = changes_data.get("ids_saved_footnotes")
-        new_bibliographies = changes_data.get("new_bibliographies")
-        changes_footnotes = changes_data.get("changes_footnotes")
-        before_update_footnotes = changes_data.get("before_update_footnotes")
-        changes_bibliographies = changes_data.get("changes_bibliographies")
-        before_update_bibliographies = changes_data.get("before_update_bibliographies")        
-        documents = changes_data.get("documents")
-        ResearchChanges = Mongo().connect("research_changes_history")
+        changes = ctx.changes
+        data_pics = ctx.data_pics
+        #changes_pics_inputs = ctx.changes_pics_inputs
+        #changed_pics = ctx.changed_pics
+        new_footnotes = ctx.new_footnotes
+        ids_saved_footnotes = ctx.ids_saved_footnotes
+        new_bibliographies = ctx.new_bibliographies
+        changes_footnotes = ctx.changes_footnotes
+        before_update_footnotes = ctx.before_update_footnotes
+        changes_bibliographies = ctx.changes_bibliographies
+        before_update_bibliographies = ctx.before_update_bibliographies
+        documents = ctx.documents
+        ResearchChanges = ctx.mongo.connect("research_changes_history")
 
         if any(
             isinstance(x, dict)
             for x in [
                 changes,
-                changes_pics_inputs,
-                changed_pics,
+                data_pics,
+                #changes_pics_inputs,
+                #changed_pics,
                 new_footnotes,
                 changes_footnotes,
                 new_bibliographies,
                 changes_bibliographies,
                 documents,
-                                # changes_docs_inputs,
+                # changes_docs_inputs,
                 #changed_docs,
             ]
         ):
            
             combined_changes = {}
-            research_id = get_research_id(_id)
+            research_id = get_research_id(ctx._id)
             print("research_id: ", research_id)
             # Combine changes into a single dictionary
             if research_id:                
@@ -45,17 +49,21 @@ def save_history_changes(_id, user_id, research, is_new_research, changes_data):
             if changes:
                 print("changes", changes)
                 combined_changes["changes"] = changes
+            
+            print("data_pics", data_pics)
+            if data_pics:
+                combined_changes["data_pics"] = data_pics            
 
-            if changes_pics_inputs and len(changes_pics_inputs) > 0:
-                combined_changes["changes_pics_inputs"] = changes_pics_inputs
-            if changed_pics:
-                combined_changes.setdefault("changed_pics", []).extend(changed_pics)
+            #if changes_pics_inputs and len(changes_pics_inputs) > 0:
+            #    combined_changes["changes_pics_inputs"] = changes_pics_inputs
+            #if changed_pics:
+            #    combined_changes.setdefault("changed_pics", []).extend(changed_pics)
             if new_footnotes:
                 toChangesFootnotes = []
                 print("ids_saved_footnotes", ids_saved_footnotes)
                 for id_saved_footnote in ids_saved_footnotes:   
                     print("id_saved_footnote", id_saved_footnote)                 
-                    footNote = Mongo().connect("footnotes").find_one({"_id": ObjectId(id_saved_footnote)})
+                    footNote = ctx.mongo.connect("footnotes").find_one({"_id": ObjectId(id_saved_footnote)}, session=ctx.session)
                     print("footNote", footNote)
                     if footNote:                        
                         toChangesFootnotes.append(footNote)
@@ -73,11 +81,8 @@ def save_history_changes(_id, user_id, research, is_new_research, changes_data):
             if documents:
                 combined_changes["documents"] = documents
             timestamped_changes =  AuditManager().add_timestampsResearch(
-                combined_changes, user_id, research, is_new_research
-            )
-            
-            # Insert the timestamped changes into the inventory changes collection
-            
-            
-            ResearchChanges.insert_one(ResearchUpdatePayload(**timestamped_changes).model_dump())
-            _ = Mongo().checkAndDropIfExistCollection("pieces_search_serialized")
+                combined_changes, ctx.user_id, ctx.research, ctx.is_new_research
+            )            
+            # Insert the timestamped changes into the inventory changes collection            
+            ResearchChanges.insert_one(ResearchUpdatePayload(**timestamped_changes ).model_dump(exclude_none=False), session=ctx.session)
+            _ = ctx.mongo.checkAndDropIfExistCollection("pieces_search_serialized")

@@ -49,16 +49,24 @@ def format_new_pic( pic,user_id, moduleId, _id):
             return None
             
                 # Con AuditManager le agregamos info de timestamps y auditoria de usuario
-        return AuditManager().add_photoInfo(new_picture, user_id)
+        return AuditManager().add_photoInfo(new_picture, ObjectId(user_id))
     
     
 
-def process_thumbnail(pic):
+def process_thumbnail(pic, module_name):
+
+    if module_name == "research":
+        path = settings.PHOTO_RESEARCH_PATH
+        thumbnail_path = settings.THUMBNAILS_RESEARCH_PATH
+    elif module_name == "restoration":
+        path = settings.PHOTO_RESTORATION_PATH
+        thumbnail_path = settings.THUMBNAILS_RESTORATION_PATH
+
     try:
-        origin = os.path.join(settings.PHOTO_RESEARCH_PATH, pic["file_name"])
+        origin = os.path.join(path, pic["file_name"])
         # Creamos el thumbnail en la carpeta de thumbnails
         destination = os.path.join(
-            settings.THUMBNAILS_RESEARCH_PATH, pic["file_name"]
+            thumbnail_path, pic["file_name"]
         )
         # Creamos el objeto Image para abrir la imagen y cambiarle el tamaño
         img = Image.open(origin)
@@ -73,35 +81,50 @@ def process_thumbnail(pic):
         print("No se pudo crear el thumbnail Error: ", e)
     
 
-def add_delete_to_actual_photo_file_name(file_name):
-        origin = os.path.join(settings.PHOTO_RESEARCH_PATH, file_name)
-        destination = os.path.join(settings.PHOTO_RESEARCH_PATH, f"deleted_{file_name}")
-                    
-        origin_thumbnail = os.path.join(settings.THUMBNAILS_RESEARCH_PATH, file_name)
-        destination_thumbnail = os.path.join(settings.THUMBNAILS_RESEARCH_PATH, f"deleted_{file_name}")
-        
-        # Esto puede salir mal por falta de permisos, pero le hacemos una comprobacion de error y seguimos
-        try:
-            shutil.move(origin, destination)
-            shutil.move(origin_thumbnail, destination_thumbnail)
-        except Exception as e:
-            print("No se pudo mover el thumbnail Error: ", e)
-def add_delete_to_actual_document_file_name(document_id):
+def add_delete_to_actual_photo_file_name(file_name, module_name):
+
+    if module_name == "research":
+        path = settings.PHOTO_RESEARCH_PATH
+        thumbnail_path = settings.THUMBNAILS_RESEARCH_PATH
+    elif module_name == "restoration":
+        path = settings.PHOTO_RESTORATION_PATH
+        thumbnail_path = settings.THUMBNAILS_RESTORATION_PATH
+
+
+    origin = os.path.join(path, file_name)
+    destination = os.path.join(path, f"deleted_{file_name}")
+                
+    origin_thumbnail = os.path.join(thumbnail_path, file_name)
+    destination_thumbnail = os.path.join(thumbnail_path, f"deleted_{file_name}")
+    
+    # Esto puede salir mal por falta de permisos, pero le hacemos una comprobacion de error y seguimos
+    try:
+        shutil.move(origin, destination)
+        shutil.move(origin_thumbnail, destination_thumbnail)
+    except Exception as e:
+        print("No se pudo mover el thumbnail Error: ", e)
+def add_delete_to_actual_document_file_name(document_id, module_name):
     file_name = Mongo().connect("documents").find_one({"_id": ObjectId(document_id)}).get("file_name")        
-    origin = os.path.join(settings.DOCUMENT_RESEARCH_PATH, file_name)
-    destination = os.path.join(settings.DOCUMENT_RESEARCH_PATH, f"deleted_{file_name}")
+
+    if module_name == "research":
+        origin = os.path.join(settings.DOCUMENT_RESEARCH_PATH, file_name)
+        destination = os.path.join(settings.DOCUMENT_RESEARCH_PATH, f"deleted_{file_name}")
+    elif module_name == "restoration":
+        origin = os.path.join(settings.DOCUMENT_RESTORATION_PATH, file_name)
+        destination = os.path.join(settings.DOCUMENT_RESTORATION_PATH, f"deleted_{file_name}")
     try:
         shutil.move(origin, destination)
     except Exception as e:
         print("No se pudo mover el documento Error: ", e)
             
-def store_pic_changes(pic, user_id):
+def store_pic_changes(pic, user_id, mongo, session):
 
-    return Mongo().connect("photographs").update_one(
+    return mongo.connect("photographs").update_one(
         {"_id": ObjectId(pic["_id"])},
         {
-            "$set": PhotographSchema(**AuditManager().add_updateInfo(_format_pic_data_to_update(pic), user_id)).model_dump(exclude_none=True),
-        },
+            "$set": PhotographSchema(**AuditManager().add_updateInfo(_format_pic_data_to_update(pic), ObjectId(user_id))).model_dump(exclude_none=True),
+        }, 
+        session=session
     )
     
 def _format_pic_data_to_update(pic):
@@ -111,19 +134,31 @@ def _format_pic_data_to_update(pic):
         "mime_type": pic.get("mime_type") or None,                    
     }                   
 
-def _map_field_name(key: str, field_map: dict) -> str:
-    """Mapea el nombre de un campo al nombre esperado en la base de datos."""
+def _map_field_name(key: str, field_map: dict | None) -> str:
+    if not field_map:
+        return key
     return field_map.get(key, key)
 
 def _convert_list_to_object_ids(key: str, items: list) -> list:
-    """Convierte una lista de dicts con _id a una lista de ObjectId."""
+    """Convierte una lista que puede contener dicts con _id, ObjectId o strings a una lista de ObjectId."""
     ids = []
     for item in items:
-        if isinstance(item, dict) and "_id" in item:
-            try:
+        try:
+            if isinstance(item, dict) and "_id" in item:
                 ids.append(ObjectId(item["_id"]))
-            except Exception as e:
-                print(f"⚠️ Error al convertir ID en {key}: {item['_id']} ({e})")
+
+            elif isinstance(item, ObjectId):
+                ids.append(item)
+
+            elif isinstance(item, str):
+                ids.append(ObjectId(item))
+
+            else:
+                print(f"⚠️ Item no convertible en '{key}': {item}")
+
+        except Exception as e:
+            print(f"⚠️ Error convirtiendo '{item}' en '{key}': {e}")
+    
     return ids
 
 def _convert_dict_to_object_id(key: str, value: dict):
@@ -142,8 +177,9 @@ def _process_field(key: str, value, field_map: dict):
         return None
 
     new_value = value["newValue"]
+    print(f"Processing field '{key}' with new value: {new_value}")
     mapped_key = _map_field_name(key, field_map)
-
+    print(f"Mapped key: '{mapped_key}'")
     if isinstance(new_value, list):
         return mapped_key, _convert_list_to_object_ids(key, new_value)
 
@@ -169,7 +205,6 @@ def format_research_data(changes, inventory_fields ):
         "place_of_creation": "place_of_creation_id",
         "involved_creation": "involved_creation_ids",
     }
-
     researchData = {}
 
     for key, value in changes.items():
@@ -180,3 +215,18 @@ def format_research_data(changes, inventory_fields ):
             researchData[mapped_key] = converted_value
 
     return researchData
+
+def format_restoration_data(changes):
+    """
+    Formatea los cambios de restauración, mapeando campos y convirtiendo IDs a ObjectId.
+    """
+    field_map = None
+    restorationData = {}
+
+    for key, value in changes.items():
+        
+        if result:= _process_field(key, value, field_map):
+            mapped_key, converted_value = result
+            restorationData[mapped_key] = converted_value
+
+    return restorationData

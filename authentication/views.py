@@ -1,6 +1,5 @@
 # Create your views here.
-from math import e
-from wsgiref.handlers import format_date_time
+import json
 import jwt
 #from django.contrib.auth.models import User
 from django.contrib.auth import get_user_model
@@ -10,15 +9,25 @@ from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework import status
-from rest_framework_simplejwt.tokens import RefreshToken
+#from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.permissions import IsAuthenticated
 from django.contrib.auth import authenticate
-from rest_framework_simplejwt.authentication import JWTAuthentication
-from django.shortcuts import get_object_or_404
+#from rest_framework_simplejwt.authentication import JWTAuthentication
+from authentication.custom_jwt import CustomJWTAuthentication
+
+#from django.shortcuts import get_object_or_404
 from .mongo_queries import getPermissions
 from time import time
 from user_queries.driver_database.mongo import Mongo
+from bson import ObjectId
+from django.contrib.auth.hashers import make_password
+
 User = get_user_model()
+
+
+SECRET ="Ax100_2022_xLk8optaeqna9d5WdAfCeeGdLk84YgDe"
+ACCESS_LIFETIME = 60 * 60 * 4    # 4 horas
+REFRESH_LIFETIME = 60 * 60 * 24  # 24 horas
 
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
@@ -27,12 +36,10 @@ class LoginSerializer(serializers.Serializer):
     def validate(self, data):
         
         email = data.get("email")
-        password = data.get("password")
-        print("email, password", email, password)
+        password = data.get("password")     
         
-        authenticated_user = authenticate(username=email, password=password)
-        
-        print("authenticated_user", authenticated_user)
+        authenticated_user = authenticate(username=email, password=password)        
+     
         if authenticated_user:
             if authenticated_user.is_active:
                 data["user"] = authenticated_user                
@@ -45,6 +52,7 @@ class LoginSerializer(serializers.Serializer):
 class Permission:
     def get_permission(self, user):
         mongo = Mongo()
+        
         collection = mongo.connect('user_has_roles')
         cursor = collection.aggregate(getPermissions(user))
 
@@ -71,52 +79,84 @@ class Permission:
             return names
     
 
+
 class signinView(APIView):
-    authentication_classes = []  # Desactiva la autenticación
-    permission_classes = [AllowAny]  # Permite a cualquiera acceder a esta vista
+    authentication_classes = []
+    permission_classes = [AllowAny]
 
     def post(self, request):
+        # Validar login como ya lo haces tú
         serializer = LoginSerializer(data=request.data)
-        #print(request.data)
-        if serializer.is_valid():
-            user = serializer.validated_data["user"]
-            
-            #print("user",user)
-            refresh = RefreshToken.for_user(user)
-            #print(user)
-            permission = Permission()            
-            user_permissions = permission.get_permission(user)
-                        
-            return Response(
-                {
-                    "refresh": str(refresh),
-                    "access": str(refresh.access_token),
-                    "user": str(user), 
-                    "permissions": str(user_permissions),                    
-                },
-                status=status.HTTP_202_ACCEPTED,
-                )
-        else:
-            # Si los datos de la solicitud no son válidos, devolver los errores de validación
-            return Response(serializer.errors, status=status.HTTP_401_UNAUTHORIZED)
-        
+
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=401)
+
+        user = serializer.validated_data["user"]
+        user_id = str(user.id)  # ya es Mongo
+
+        # === GENERAR ACCESS TOKEN ===
+        access = jwt.encode({
+            "user_id": user_id,
+            "exp": int(time()) + ACCESS_LIFETIME
+        }, SECRET, algorithm="HS256")
+
+        # === GENERAR REFRESH TOKEN ===
+        refresh = jwt.encode({
+            "user_id": user_id,
+            "exp": int(time()) + REFRESH_LIFETIME
+        }, SECRET, algorithm="HS256")
+
+        permission = Permission()
+        user_permissions = permission.get_permission(user)
+
+        return Response({
+            "refresh": refresh,
+            "access": access,
+            "user": user.username,
+            "permissions": user_permissions
+        }, status=202)
+
+    # ================================
+    # REFRESCAR ACCESS TOKEN
+    # ================================
+
     def put(self, request):
         refresh = request.data.get("refresh")
         if not refresh:
-            return Response({"error": "Se requiere de un token"}, status=status.HTTP_400_BAD_REQUEST)
-        try:
-            refresh_token = RefreshToken(refresh)
-            user_id = refresh_token.payload['user_id']
-            user = User.objects.get(id=user_id)
-            access_token = str(refresh_token.access_token)            
-            user = request.user                
-            permission = Permission()            
-            user_permissions = permission.get_permission(user)
-            
-        except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": "Se requiere un refresh token"}, status=400)
 
-        return Response({"access": access_token, "user": user.username, "user_permissions": user_permissions}, status=status.HTTP_200_OK)
+        try:
+            payload = jwt.decode(refresh, SECRET, algorithms=["HS256"])
+        except jwt.ExpiredSignatureError:
+            return Response({"error": "Refresh expirado"}, status=401)
+        except Exception:
+            return Response({"error": "Token inválido"}, status=401)
+
+        user_id = payload["user_id"]
+        print("user_id", user_id)
+        # Buscar usuario en Mongo
+        mongo = Mongo()
+        collection = mongo.connect("authentication_my_user")
+        user_doc = collection.find_one({"_id": ObjectId(user_id), "deleted_at": None})
+        print("user_doc", user_doc)
+        if not user_doc:
+            return Response({"error": "Usuario no encontrado"}, status=404)
+
+        # Crear access nuevo
+        new_access = jwt.encode({
+            "user_id": user_id,
+            "exp": int(time()) + ACCESS_LIFETIME
+        }, SECRET, algorithm="HS256")
+
+        # Permisos
+        permission = Permission()
+        user_permissions = permission.get_permission(user_doc)
+
+        return Response({
+            "access": new_access,
+            "user": user_doc["username"],
+            "permissions": user_permissions
+        })
     
 class SignupSerializer(serializers.Serializer):
     username = serializers.CharField(max_length=150)
@@ -125,126 +165,202 @@ class SignupSerializer(serializers.Serializer):
     id = serializers.IntegerField()
 
     def create(self, validated_data):
-        user = User.objects.create_user(**validated_data)
+        mongo = Mongo()
+        collection = mongo.connect("authentication_my_user")
+
+        # Hasheamos la contraseña igual que Django hace
+        hashed_password = make_password(validated_data["password"])
+
+        user_doc = {
+            "_id": ObjectId(),  # Mongo ObjectId
+            "id": validated_data["id"],  # tu ID incremental
+            "username": validated_data["username"],
+            "email": validated_data["email"],
+            "password": hashed_password,
+            "is_active": True,
+            "is_staff": False,
+            "is_superuser": False,
+            "deleted_at": None,
+        }
+
+        # Insertar directamente en Mongo
+        collection.insert_one(user_doc)
+
+        # Opcional: devolver un objeto tipo User de Django para compatibilidad
+        user = User(
+            id=validated_data["id"],
+            username=validated_data["username"],
+            email=validated_data["email"],
+            password=hashed_password,
+            is_active=True,
+            is_staff=False,
+            is_superuser=False,
+            deleted_at=None,
+        )
+
         return user
 
 class InactiveUser(APIView):
     permission_classes = [IsAuthenticated]
     
+    authentication_classes = [CustomJWTAuthentication]
+    
+
+
     def patch(self, request):
-        print("inactive api")
+        
         try:
-            userId= request.data.get("user_id")
-            print(userId)
-            user = get_object_or_404(User, id=userId)
-            user.is_active = False
-            user.save()
-            return Response({"response":"record_changed"}, status=status.HTTP_202_ACCEPTED)
-        except Exception as e:            
-            return Response({"error":str(e)}, status=status.HTTP_400_BAD_REQUEST)    
+            user_id = request.data.get("user_id")
+            if not user_id:
+                return Response({"error": "Se requiere user_id"}, status=status.HTTP_400_BAD_REQUEST)
+
+            mongo = Mongo()
+            users_collection = mongo.connect("authentication_my_user")
+            
+            result = users_collection.update_one(
+                {"_id": ObjectId(user_id)},
+                {"$set": {"is_active": False}}
+            )
+
+            if result.matched_count == 0:
+                return Response({"error": "Usuario no encontrado"}, status=status.HTTP_404_NOT_FOUND)
+
+            return Response({"response": "record_changed"}, status=status.HTTP_202_ACCEPTED)
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         
 class ActivateUser(APIView):
-    
     permission_classes = [IsAuthenticated]
-    
+    authentication_classes = [CustomJWTAuthentication]
+
     def patch(self, request):
-        
         try:
-            userId= request.data.get("user_id")
-            print(userId)
-            user = get_object_or_404(User, id=userId)
-            user.is_active = True
-            user.save()
-            return Response({"response":"record_changed"}, status=status.HTTP_202_ACCEPTED)
-        except Exception as e:            
-            return Response({"error":str(e)}, status=status.HTTP_400_BAD_REQUEST)    
+            user_id = request.data.get("user_id")
+            if not user_id:
+                return Response({"error": "Se requiere user_id"}, status=status.HTTP_400_BAD_REQUEST)
+
+            mongo = Mongo()
+            users_collection = mongo.connect("authentication_my_user")
+            
+            result = users_collection.update_one(
+                {"_id": ObjectId(user_id)},
+                {"$set": {"is_active": True}}
+            )
+
+            if result.matched_count == 0:
+                return Response({"error": "Usuario no encontrado"}, status=status.HTTP_404_NOT_FOUND)
+
+            return Response({"response": "record_changed"}, status=status.HTTP_202_ACCEPTED)
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
     
         
         
 class EditUser(APIView):
     permission_classes = [IsAuthenticated]
+    authentication_classes = [CustomJWTAuthentication]
     
     def patch(self, request):
         try:
-            
-           
             data = request.data.get("formDataChange")
-            userId= data.get("user_id")                        
-            user = User.objects.get(id=userId)
-            user.username = data.get("user")
-            user.email = data.get("email")
-            password = data.get("password")
+            user_id = data.get("user_id")
+            if not user_id:
+                return Response({"error": "Se requiere user_id"}, status=status.HTTP_400_BAD_REQUEST)
+
+            mongo = Mongo()
+            users_collection = mongo.connect("authentication_my_user")
+            user = users_collection.find_one({"_id": ObjectId(user_id)})
+
+            if not user:
+                return Response({"error": "Usuario no encontrado"}, status=status.HTTP_404_NOT_FOUND)
+
+            # Actualizar campos básicos
+            update_fields = {}
+            if "user" in data:
+                update_fields["username"] = data["user"]
+            if "email" in data:
+                update_fields["email"] = data["email"]
+            if "password" in data and data["password"]:
+                # Hashear la contraseña usando el mismo método que Django                
+                update_fields["password"] = make_password(data["password"])
+
+            if update_fields:
+                users_collection.update_one({"_id": ObjectId(user_id)}, {"$set": update_fields})
+
+            # Actualizar rol
             rol_name = data.get("rol")
             rol_id = data.get("rol_id")
-            
-            mongo = Mongo()
-            
-            collection_check = mongo.connect('user_has_roles')
-            cursor = collection_check.find_one({'model_id': int(userId)})
-            print(userId)
-            if cursor.get("role_id") != rol_id:
-                print("entro")   
-                collectionRoles = mongo.connect('roles')
-                cursor = collectionRoles.find_one({'id': int(rol_id) } )
-                if cursor.get("name") == rol_name:
-                    print("entro2")
-                    collection = mongo.connect('user_has_roles')
-                    cursor = collection.update_one(
-                        {"model_id": int(userId)},
-                        {"$set": {"role_id": int(rol_id)}}
+            if rol_id is not None:
+                user_roles_collection = mongo.connect("user_has_roles")
+                current_role = user_roles_collection.find_one({"model_id": str(user_id)})
+                
+                if not current_role or current_role.get("role_id") != int(rol_id):
+                    roles_collection = mongo.connect("roles")
+                    role_doc = roles_collection.find_one({"id": int(rol_id)})
+                    if not role_doc or role_doc.get("name") != rol_name:
+                        return Response({"error": "El rol no coincide con el id"}, status=status.HTTP_400_BAD_REQUEST)
+                    
+                    user_roles_collection.update_one(
+                        {"model_id": str(user_id)},
+                        {"$set": {"role_id": int(rol_id)}},
+                        upsert=True
                     )
-                else:
-                    return Response({"error":"El rol no coincide con el id"}, status=status.HTTP_400_BAD_REQUEST)
-                            
-            
-            if password:
-                user.set_password(password)
-            user.save()
-            return Response({"response":"user_updated"}, status=status.HTTP_202_ACCEPTED)
-        
+
+            return Response({"response": "user_updated"}, status=status.HTTP_202_ACCEPTED)
+
         except Exception as e:
-            return Response({"error":str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
             
 class DeleteUser(APIView):
     permission_classes = [IsAuthenticated]
+    authentication_classes = [CustomJWTAuthentication]
     
     def delete(self, request):
         try:
-            userId= request.data.get("user_id")
-            user = User.objects.get(id=userId)
+            user_id = request.data.get("user_id")
+            if not user_id:
+                return Response({"error": "Se requiere user_id"}, status=status.HTTP_400_BAD_REQUEST)
+
             mongo = Mongo()
-            collection = mongo.connect('deleted_auth_users')
-            collection.insert_one(
-                {
-                    "username": user.username,
-                    "email": user.email,
-                    "id": user.id
-                }
-            )
-            
-            user.delete()
-            return Response({"response":"record_deleted"}, status=status.HTTP_202_ACCEPTED)
+            users_collection = mongo.connect("authentication_my_user")
+            user = users_collection.find_one({"_id": ObjectId(user_id)})
+
+            if not user:
+                return Response({"error": "Usuario no encontrado"}, status=status.HTTP_404_NOT_FOUND)
+
+            # Guardar en deleted_auth_users
+            deleted_collection = mongo.connect("deleted_auth_users")
+            deleted_collection.insert_one(user)
+
+            # Borrar usuario
+            users_collection.delete_one({"_id": ObjectId(user_id)})
+
+            return Response({"response": "record_deleted"}, status=status.HTTP_202_ACCEPTED)
+
         except Exception as e:
-            return Response({"error":str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         
 class UserManage(APIView):
     permission_classes = [IsAuthenticated]
+    authentication_classes = [CustomJWTAuthentication]
     
     def get(self, request):
         # Obtén todos los usuarios
-        all_users = User.objects.all()
-        # Filtra los usuarios activos e inactivos
-        
-                
+        mongo = Mongo()
+        users_collection = mongo.connect("authentication_my_user")
+        all_users = list(users_collection.find({"deleted_at": None}))                
             
         users_active = [
-            {'id': user.id, 'username': user.username, 'email': user.email}
-            for user in all_users if user.is_active
+            {'id': str(user["_id"]), 'username': user["username"], 'email': user["email"]}
+            for user in all_users if user.get("is_active", True)
         ]
         #print (users_active)
         users_inactive = [
-            {'id': user.id, 'username': user.username, 'email': user.email}
-            for user in all_users if not user.is_active
+            {'id': str(user["_id"]), 'username': user["username"], 'email': user["email"]}
+            for user in all_users if not user.get("is_active", True)
         ]
         #print("users_inactivesss",users_inactive)
         # Convertir usuarios a JSON
@@ -259,14 +375,15 @@ class UserManage(APIView):
             if user_id is not None:
                 # Consulta en MongoDB
                 collection = mongo.connect('user_has_roles')
-                cursor = collection.find({'model_id': int(user_id)})
+                cursor = collection.find({'model_id': ObjectId(user_id)})
                 results = list(cursor)
                 
                 for item in results:
                     collection = mongo.connect('roles')
-                    role_data = collection.find_one({'id': int(item["role_id"])})
+                    role_data = collection.find_one({'_id': ObjectId(item["role_id"])})
+                    
                     roles.append(role_data.get("name", "Unknown"))
-                    rolesId.append({"name":role_data.get("name","unknown") ,"id":role_data.get("id", "Unknown")})
+                    rolesId.append({"name":role_data.get("name","unknown") ,"id":str(role_data.get("_id", "Unknown"))})
                 # Agregar al JSON de usuarios activos
                 users_active_json.append({
                     "user": user.get("username", ""),
@@ -285,16 +402,16 @@ class UserManage(APIView):
             if user_id is not None:
                 # Consulta en MongoDB
                 collection = mongo.connect('user_has_roles')
-                cursor = collection.find({'model_id': int(user_id)})
+                cursor = collection.find({'model_id': ObjectId(user_id)})
                 results = list(cursor)
 
                 for item in results:
                     collection = mongo.connect('roles')
-                    role_data = collection.find_one({'id': int(item["role_id"])})
+                    role_data = collection.find_one({'_id': ObjectId(item["role_id"])})
                     if role_data:
                         roles.append(role_data.get("name", "Unknown"))
                        
-                deletable = not mongo.searchUserInCollections(user_id)
+                deletable = not mongo.searchUserInCollections(ObjectId(user_id))
 
             # Agregar al JSON de usuarios inactivos
             if user_id is not None:
@@ -309,7 +426,7 @@ class UserManage(APIView):
         roles = mongo.connect('roles')
         roles = list(roles.find())
         #aparte de el name del rol tambien obtener el id
-        roles = [{"name": role.get("name"), "id": role.get("id")} for role in roles]
+        roles = [{"name": role.get("name"), "id": str(role.get("_id"))} for role in roles]
         roles_id = [{"name": role.get("name")} for role in roles]
         
         #print("users_inactive",users_inactive_json)
@@ -322,20 +439,21 @@ class UserManage(APIView):
 
 class SignupView(APIView):
     permission_classes = [IsAuthenticated]
+    authentication_classes = [CustomJWTAuthentication]
   
         
     def post(self, request):
-        print("si ocurre");
-        #print(request.data)
+        
+        
         # Extraer los datos del campo 'formData'
         form_data = request.data.get('formData', {})
-        print("form_data",form_data)
+        
         # Mapear los campos a los requeridos por el serializer
         mongo = Mongo()
-        collection = mongo.connect("auth_user")
+        collection = mongo.connect("authentication_my_user")
         #en auth_user hay una objeto que tiene el nombre max_count_id, filtrarlo por nombre y luego aumentarle 1        
         cursor = collection.find_one({"max_count_id": {"$exists": True}})
-        print(cursor)
+        
         if cursor:
             # Extraer el valor actual de "max_count_id"
             current_value = cursor.get("max_count_id", 0)  # Si el campo no existe, toma 0 como valor por defecto
@@ -351,7 +469,7 @@ class SignupView(APIView):
             "id": new_value
         }
         
-        print("formated_data",formatted_data)
+        
         # Validar y guardar los datos con el serializer
         serializer = SignupSerializer(data=formatted_data)
 
@@ -390,13 +508,14 @@ class SignupView(APIView):
 
 class CheckAccesToken(APIView):
     permission_classes = [IsAuthenticated]
-    authentication_classes = [JWTAuthentication]
+    authentication_classes = [CustomJWTAuthentication]
     def post (self, request):
         
         authorization_header = request.headers.get("Authorization")
+       
         #print(f"Authorization Header: {authorization_header}")  # Añade este log
         username = request.user.username
-        print(f"Authenticated User: {username}")  # Añade este log
+       
         if authorization_header:
             # Dividir el encabezado Authorization para obtener el token de acceso
             parts = authorization_header.split()
