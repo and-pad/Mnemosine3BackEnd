@@ -3,6 +3,7 @@ import os
 import random
 import string
 import shutil
+import json
 from bson import ObjectId
 from user_queries.driver_database.mongo import Mongo
 from ..tools import AuditManager
@@ -230,3 +231,24 @@ def format_restoration_data(changes):
             restorationData[mapped_key] = converted_value
 
     return restorationData
+
+
+
+
+
+def get_collection_json( mongo, collection_name, query=None, sort_field=None):
+        """Obtiene documentos de una colección y los convierte a JSON."""
+        collection = mongo.connect(collection_name)
+        cursor = collection.find(query or {})
+        if sort_field:
+            cursor = cursor.sort(sort_field, 1)
+        return json.loads(json.dumps(list(cursor), default=str))
+
+def get_catalog_elements( mongo, code):
+    """Obtiene los elementos de un catálogo dado su código."""
+    catalog = mongo.connect("catalogs").find_one({"code": code})
+    if catalog:
+        return get_collection_json(
+            mongo, "catalog_elements", {"catalog_id": ObjectId(catalog["_id"])}
+        )
+    return []

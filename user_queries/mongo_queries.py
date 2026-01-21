@@ -711,12 +711,16 @@ PIECES_ALL = [
                 }
             },
             "research_info": {
-                "$mergeObjects": [
+                "$cond": [
+                    { "$gt": [{ "$size": "$research_info" }, 0] },
+
                     {
-                        "title": {"$arrayElemAt": ["$research_info.title", 0]},
-                        "keywords": {"$arrayElemAt": ["$research_info.keywords", 0]},
-                        "technique": {"$arrayElemAt": ["$research_info.technique", 0]},
-                        "materials": {"$arrayElemAt": ["$research_info.materials", 0]},
+                    "$mergeObjects": [
+                        {
+                        "title": { "$arrayElemAt": ["$research_info.title", 0] },
+                        "keywords": { "$arrayElemAt": ["$research_info.keywords", 0] },
+                        "technique": { "$arrayElemAt": ["$research_info.technique", 0] },
+                        "materials": { "$arrayElemAt": ["$research_info.materials", 0] },
                         "acquisition_form": {
                             "$arrayElemAt": ["$research_info.acquisition_form", 0]
                         },
@@ -741,11 +745,16 @@ PIECES_ALL = [
                         "publications": {
                             "$arrayElemAt": ["$research_info.publications", 0]
                         },
-                        "card": {"$arrayElemAt": ["$research_info.card", 0]},
-                        "place_of_creation_info": "$place_of_creation_info",
+                        "card": { "$arrayElemAt": ["$research_info.card", 0] },
+                        "place_of_creation_info": "$place_of_creation_info"
+                        }
+                    ]
                     },
+
+                    None
                 ]
-            },
+                },
+
             "photo_thumb_info": {
                 "$mergeObjects": [
                     {

@@ -1,7 +1,5 @@
-from hmac import new
 from bson import ObjectId
-from requests import session
-from user_queries.driver_database.mongo import Mongo
+
 from ..tools import AuditManager
 from user_queries.shemas.research_update_payload import ResearchUpdatePayload
 from user_queries.views.common.utils import get_research_id

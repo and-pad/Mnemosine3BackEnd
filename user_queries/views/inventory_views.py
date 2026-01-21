@@ -1,4 +1,7 @@
+import errno
+from user_queries.views.inventory_new_subview import process_get
 
+#from user_queries.driver_database import mongo
 from user_queries.views.tools import AuditManager
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -13,7 +16,7 @@ import json
 import os
 import shutil
 
-from user_queries.driver_database.mongo import Mongo
+
 import string
 from authentication.views import Permission
 from PIL import Image
@@ -23,6 +26,8 @@ from user_queries.mongo_queries import (
     PIECES_ALL,
 
 )
+
+
 """
     MODULES,
     pieceDetail,
@@ -833,3 +838,21 @@ class InventoryEdit(APIView):
                 {"error": "Can't create the new document registry " + str(e)},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+class InventoryNew(APIView):
+    permission_classes = [IsAuthenticated]
+    authentication_classes = [CustomJWTAuthentication]
+
+    def get(self, request):
+        mongo = Mongo()
+        try:
+
+            response = process_get(mongo)
+        
+        except Exception as e:
+            return Response(
+                {"error": "Can't get the catalogs elements " + str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(response, status=status.HTTP_200_OK)
+    
