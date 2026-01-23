@@ -1,12 +1,21 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, constr, StringConstraints
+from typing_extensions import Annotated
+
 from typing import List, Optional, Literal
 from datetime import datetime
 from bson import ObjectId
 
+
+NonEmptyStr = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1)
+]
+
 class PieceSchema(BaseModel):
-    inventory_number: Optional[str] = None
-    origin_number: Optional[str] = None
-    catalog_number: Optional[str] = None
+    inventory_number: NonEmptyStr
+    origin_number: NonEmptyStr
+    catalog_number: NonEmptyStr
+
     appraisal: Optional[float] = None
     description_origin: Optional[str] = None
     gender_id: Optional[ObjectId] = None

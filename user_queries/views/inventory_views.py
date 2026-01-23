@@ -1,5 +1,5 @@
 import errno
-from user_queries.views.inventory_new_subview import process_get
+from user_queries.views.inventory_new_subview import process_get, process_post
 
 #from user_queries.driver_database import mongo
 from user_queries.views.tools import AuditManager
@@ -311,9 +311,9 @@ class InventoryEdit(APIView):
         changes_pics_inputs, que son los inputs de las fotos
         changes_docs_inputs, que son los inputs de los documentos
 
-        PicsNew, que son las fotos nuevas
+        PicsNew, que son los campos y/o argumentos de fotos nuevas
         files[new_img_{x}], que son las fotos nuevas
-        DocumentsNew, que son los documentos nuevos
+        DocumentsNew, que son los campos y/o argumentos de documentos nuevos
         files[new_doc_{x}], que son los documentos nuevos
 
         changed_pics, que son los _id objectId de mongo de las fotos con combio
@@ -856,3 +856,35 @@ class InventoryNew(APIView):
             )
         return Response(response, status=status.HTTP_200_OK)
     
+    def post(self, request):        
+        """
+        Aqui vienen los datos para actualizar el inventario
+        primero pasan por una etapa de revision
+        si se aprueba se actualiza el inventario eso en put
+        si se rechaza se no se hacen los cambios
+        los cambios se guardan en la base de datos en la colección inventory_changes_approval
+        viene:
+        changes, que son los inputs del inventario        
+
+        PicsNew, que son los campos y/o argumentos de fotos nuevas
+        files[new_img_{x}], que son las fotos nuevas
+
+        DocumentsNew, que son los campos y/o argumentos de documentos nuevos
+        files[new_doc_{x}], que son los documentos nuevos       
+
+        """
+        # Get the user ID from the request
+        user_id = request.user.id
+
+        # Get the data from the request
+        data = request.data
+        print("data", data)
+        print("user_id", user_id)
+
+        # Initialize the Mongo connection
+        mongo = Mongo()
+        changes = process_post(request,  mongo)
+
+        # Connect to the inventory change approvals collection
+        #InventoryChanges = mongo.connect("inventory_change_approvals")
+        return Response("data received", status=status.HTTP_200_OK)
