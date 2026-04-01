@@ -12,11 +12,23 @@ from PIL import Image
 from user_queries.shemas.photograph_shema import PhotographSchema
 
 
+def oid_list(value):
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [ObjectId(v) for v in value]
+    return [ObjectId(value)]
 def generate_random_file_name(original_filename, length=40):
     _, extension = os.path.splitext(original_filename)
     alphabet = string.ascii_letters + string.digits
     return "".join(random.choices(alphabet, k=length)) + extension
 
+#the difference without new_research is the mongo session
+def get_new_research_id(_id, mongo, session):
+    research = mongo.connect("researchs").find_one(
+        {"piece_id": ObjectId(_id), "deleted_at": None}, {"_id": 1}, session=session
+    )
+    return str(research["_id"]) if research else None
 
 def get_research_id(_id):
     """Obtiene el ID de investigación a partir del ID de pieza."""
@@ -252,3 +264,8 @@ def get_catalog_elements( mongo, code):
             mongo, "catalog_elements", {"catalog_id": ObjectId(catalog["_id"])}
         )
     return []
+
+def get_locations(mongo):
+
+    institution_id = mongo.connect("institutions").find_one({"name": settings.INSTITUTION_NAME}).get("_id")
+    return get_collection_json(mongo, "exhibitions", {"institution_id": ObjectId(institution_id)})

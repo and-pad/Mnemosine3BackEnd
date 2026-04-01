@@ -4,9 +4,15 @@ from ..common.utils import generate_random_file_name
 from django.conf import settings
 #import mongo
 #from user_queries.driver_database.mongo import Mongo
+from user_queries.dataclasses.pictures import PicturesContext
 
 
-def process_pictures(request, pics_new, changed_pics, changes_pics_inputs ):
+def process_pictures(ctx: PicturesContext):
+        request= ctx.request
+        pics_new= ctx.pics_new
+        changed_pics = ctx.changed_pics        
+        changes_pics_inputs = ctx.changes_pics_inputs
+        
         # Process new pictures
         data = {}
         print("pics_new", pics_new)

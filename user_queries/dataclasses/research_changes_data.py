@@ -9,5 +9,6 @@ class ResearchContext:
     user_id: ObjectId
     _id: ObjectId
     is_new_research: bool
+    research: List[dict]
     mongo: Any
     session: Any

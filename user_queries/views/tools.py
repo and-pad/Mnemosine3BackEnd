@@ -33,6 +33,16 @@ class AuditManager:
 
         return object
     
+    def add_timestampsInfoNewInventory(self, object,created_by, user_id):
+        object["created_by"] = created_by
+        object["updated_by"] = user_id
+        object["deleted_by"] = None
+        object["created_at"] = datetime.now(self.tz)
+        object["updated_at"] = None #datetime.now(self.tz)
+        object["deleted_at"] = None
+
+        return object
+    
     def add_timestampsResearch(self, object, user_id, research, is_new_research):
         object["created_at"] = datetime.now(self.tz)        
         object["created_by"] = user_id

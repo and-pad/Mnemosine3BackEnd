@@ -4,7 +4,7 @@ from bson import ObjectId
 from ..tools import AuditManager
 from user_queries.shemas.bibliography_shema import BibliographySchema
 from user_queries.shemas.footnote_shema import FootNoteSchema
-from ..common.utils import get_research_id
+from ..common.utils import get_research_id, get_new_research_id
 from user_queries.dataclasses.footnotes_and_bibliographies import FootnotesBibliographiesContext
 
 def process_footnotes_and_bibliographies(ctx: FootnotesBibliographiesContext):
@@ -37,7 +37,7 @@ def process_footnotes_and_bibliographies(ctx: FootnotesBibliographiesContext):
 def save_new_footnotes(new_footnotes, user_id, _id, mongo, session):
     for footnote in new_footnotes:    
         # Eliminar el campo original            
-        research_id = get_research_id(_id) 
+        research_id = get_new_research_id(_id, mongo, session) 
         footnote["research_id"] = ObjectId(research_id)
         footnote.pop("_id", None)  # Asegurarse de que no haya _id en el nuevo pie de página
         print("new_footnotes procesado:", new_footnotes)    
@@ -74,7 +74,7 @@ def save_new_bibliographies(new_bibliographies, user_id, _id, mongo, session):
             ref_id_str = bibliography["reference_type_info"][0].get("_id")
             print("ref_id_str", ref_id_str)
             print("bibliography", bibliography)
-            research_id = get_research_id(_id) 
+            research_id = get_new_research_id(_id, mongo, session) 
             bibliography["research_id"] = ObjectId(research_id)
             if ref_id_str:
                 bibliography["reference_type_id"] = ObjectId(ref_id_str)

@@ -1,4 +1,5 @@
 
+import re
 from bson import ObjectId
 import json
 
@@ -25,6 +26,8 @@ from authentication.custom_jwt import CustomJWTAuthentication
 from user_queries.shemas.restorations_shema import RestorationsShema
 from user_queries.mongo_queries import PIECES_ALL
 from types import SimpleNamespace
+
+from .restorations.new import RestorationNew
 
 def restorations_select(_id):
 
@@ -136,8 +139,8 @@ class RestorationEdit(APIView):
         changes_pics_inputs,        
         new_docs,
         changes_docs,) = load_request_data(request)
-        print("changes", changes)        
-        print("pics_new", pics_new)
+        #print("changes", changes)        
+        #print("pics_new", pics_new)
         user_id = request.user.id        
         result = None
         with mongo.start_session() as session:
@@ -145,7 +148,10 @@ class RestorationEdit(APIView):
                 with session.start_transaction():
                     moduleId = self.get_module_id("restoration", mongo)
                     ids_actual_docs = list(restoration.get("documents_ids", []))
-                    actualized_doc_ids, documents = process_documents(request, ids_actual_docs, changes_docs, new_docs, _id, moduleId, mongo, session)
+
+                    actualized_doc_ids, documents = process_documents(
+                        request,
+                        ids_actual_docs, changes_docs, new_docs, _id, moduleId, mongo, session)
                     data_pics = process_pictures(request, pics_new, changed_pics,changes_pics_inputs )
 
 
@@ -185,10 +191,11 @@ class RestorationEdit(APIView):
     def save_restoration_changes(self, changes, data_pics, actualized_doc_ids, user_id, _id, restoration_id, restoration, mongo, session):               
         #leemos la restauración y verificamos que exista
         added_pics_ids = []
+        result = None
         
         if data_pics:
            
-           added_pics_ids = self._process_all_pics(data_pics, user_id, _id, restoration_id, restoration, mongo, session)
+           added_pics_ids, has_changes = self._process_all_pics(data_pics, user_id, _id, restoration_id, restoration, mongo, session)
         
         existent_photos = restoration.get("photographs_ids")
         changes_photos = added_pics_ids if existent_photos != added_pics_ids else []        
@@ -224,8 +231,10 @@ class RestorationEdit(APIView):
                 session=session
             )
             self._refresh_changes_in_db(_id, mongo, session)
+        elif has_changes:
+            result = SimpleNamespace(modified_count=0)
 
-        return result or None
+        return result
 
 
             
@@ -247,17 +256,17 @@ class RestorationEdit(APIView):
 
     def _process_all_pics(self, data_pics, user_id, _id, restoration_id, restoration, mongo, session):        
                 
-        photographs_ids = self.process_new_pics(data_pics, user_id, _id, mongo, session) 
-        self.process_changed_pics(data_pics, user_id, mongo, session)        
-        self.process_changed_pics_inputs(data_pics, user_id, mongo, session)
+        photographs_ids = self.process_new_pics(data_pics, user_id, _id, mongo, session)         
+        changed_pics = self.process_changed_pics(data_pics, user_id, mongo, session)        
+        changed_pics_inputs = self.process_changed_pics_inputs(data_pics, user_id, mongo, session)
         raw_photos = restoration.get("photographs_ids")
         # Normalizas:
         raw_photos = raw_photos if isinstance(raw_photos, list) else []
         added_photographs_ids = raw_photos + photographs_ids                     
-        print("photographs_ids", added_photographs_ids)
-        print("raw_photos", raw_photos)
-        print("added_photographs_ids", added_photographs_ids)
-        return added_photographs_ids
+        has_changes = bool(changed_pics or changed_pics_inputs)
+
+
+        return added_photographs_ids, has_changes
 
 
 
@@ -285,6 +294,8 @@ class RestorationEdit(APIView):
                         },
                         session=session
                     )
+                return True
+            return False
                 
         except Exception as e:
             print(f"Error al procesar entradas de fotos cambiadas: {e}")
@@ -312,7 +323,7 @@ class RestorationEdit(APIView):
         try:
             #moduleId = get_module_id("research", mongo)
             #print("cursor_change", cursor_change["changed_pics"])
-            if cursor_change.get("changed_pics"):    
+            if cursor_change.get("changed_pics"):                    
                 for pic in cursor_change["changed_pics"]:
                     photo_cursor = mongo.connect("photographs").find_one(
                         {"_id": ObjectId(pic["_id"])},
@@ -323,6 +334,9 @@ class RestorationEdit(APIView):
                     process_thumbnail(pic, "restoration")
                     #if cursor.modified_count > 0:
                         #print(f"Foto actualizada: {pic['_id']}")
+                return True
+            
+            return False
 
         except Exception as e:            
             print(f"Error al procesar fotos cambiadas: {e}") 

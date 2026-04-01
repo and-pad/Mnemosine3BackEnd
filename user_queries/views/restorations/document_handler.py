@@ -185,7 +185,7 @@ def save_to_db(file, filename, name, _id, moduleId, user_id, mongo, session):
     except PyMongoError as e:
         raise PyMongoError(f"Error al insertar el documento en MongoDB: {e}")
     
-    return inserted_doc
+    return inserted_doc.inserted_id
 
 
 def update_to_db(meta, user_id, mongo, session, file=None, filename=None, ):

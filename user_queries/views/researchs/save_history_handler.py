@@ -2,7 +2,7 @@ from bson import ObjectId
 
 from ..tools import AuditManager
 from user_queries.shemas.research_update_payload import ResearchUpdatePayload
-from user_queries.views.common.utils import get_research_id
+from user_queries.views.common.utils import get_research_id, get_new_research_id
 from user_queries.dataclasses.research_history_changes import HistoryChangesContext
 
 def save_history_changes(ctx: HistoryChangesContext):
@@ -20,6 +20,7 @@ def save_history_changes(ctx: HistoryChangesContext):
         before_update_bibliographies = ctx.before_update_bibliographies
         documents = ctx.documents
         ResearchChanges = ctx.mongo.connect("research_changes_history")
+
 
         if any(
             isinstance(x, dict)
@@ -39,7 +40,7 @@ def save_history_changes(ctx: HistoryChangesContext):
         ):
            
             combined_changes = {}
-            research_id = get_research_id(ctx._id)
+            research_id = get_new_research_id(ctx._id, ctx.mongo, ctx.session)
             print("research_id: ", research_id)
             # Combine changes into a single dictionary
             if research_id:                

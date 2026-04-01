@@ -18,7 +18,7 @@ class MovementsSchema(BaseModel):
     start_exposure: Optional[datetime] = None
     end_exposure: Optional[datetime] = None
     pieces_ids: Optional[list[ObjectId]] = None
-    authorized_by_movements: Optional[int] = None
+    authorized_by_movements: Optional[ObjectId] = None
     arrival_location_id: Optional[ObjectId] = None
     type_arrival: Optional[str] = None
     pieces_ids_arrived: Optional[list[ObjectId]] = None

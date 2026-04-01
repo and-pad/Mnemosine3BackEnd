@@ -217,13 +217,20 @@ class ResearchEdit(APIView):
         # le buscamos en la base de datos
         if "editar_investigacion" not in perm:
             return Response(
-                "You have not permission to approve",
+               {
+                 "ok": False,
+                 "message": "No tienes permiso para editar investigaciones",
+                 "detail": "No tienes permiso para editar investigaciones",
+                
+                },
                 status=status.HTTP_401_UNAUTHORIZED,
             )
                 
         if not get_module_id("research", mongo):
             return Response(
-                {"response": "Módulo no encontrado"}, status=status.HTTP_400_BAD_REQUEST
+                {"ok": False,
+                 "message": "No se pudieron guardar los cambios",
+                 "detail": "No se pudo encontrar el modulo de investigacion"}, status=status.HTTP_400_BAD_REQUEST                 
             )
 
         # Buscar investigación existente
@@ -243,7 +250,9 @@ class ResearchEdit(APIView):
             )             
             self.create_research(ResearchSchema(**research_data), mongo, session)
             research = mongo.connect("researchs").find_one(
-                {"piece_id": ObjectId(_id), "deleted_at": None}
+                {"piece_id": ObjectId(_id), "deleted_at": None},
+                session=session
+
             )
 
         return is_new_research, research
@@ -344,6 +353,7 @@ class ResearchEdit(APIView):
                         user_id =            ObjectId(user_id),
                         _id =                ObjectId(_id),
                         is_new_research =    is_new_research,
+                        research =           research,  
                         mongo =              mongo,
                         session =            session
                     )
@@ -387,11 +397,11 @@ class ResearchEdit(APIView):
                 raise
 
 
-        
+        print("research", research)
         return Response(
             {
-                "response": "Investigación actualizada",
-                "modified_count": result.modified_count,
+                "ok": True,
+                "message": "msg1ok",               
             },
             status=status.HTTP_200_OK,
         )
@@ -458,8 +468,9 @@ class ResearchEdit(APIView):
         is_new_research = ctx.is_new_research
         mongo = ctx.mongo
         session = ctx.session
-        
-        research = mongo.connect("researchs").find_one({"piece_id": ObjectId(_id), "deleted_at": None} ,session=session)
+        research = ctx.research        
+        #research = mongo.connect("researchs").find_one({"piece_id": ObjectId(_id), "deleted_at": None} ,session=session)
+
         researchData = format_research_data(changes, self.inventory_fields )
         # Siempre agregar usuario que actualizó
         if not is_new_research:

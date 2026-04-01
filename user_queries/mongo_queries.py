@@ -376,7 +376,13 @@ def pieceDetail(_id):
                             }
                         }
                     },
-                    {"$match": {"$expr": {"$gt": ["$authorized_by_movements", 0]}}},
+                   {
+                    "$match": {
+                        "authorized_by_movements": {      
+                        "$ne": None,
+                        }
+                    }
+                    },
                     {
                         "$lookup": {
                             "from": "institutions",

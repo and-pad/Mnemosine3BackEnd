@@ -1,13 +1,9 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, List, Dict
-from bson import ObjectId
 
 @dataclass
 class PicturesContext:
     request: Any
-    #_id: ObjectId
-    pics_new: List[dict]
-    changed_pics: List[dict]
-    changes_pics_inputs: List[dict]    
-    #mongo: Any
-    #session: Any
+    pics_new: List[dict] = field(default_factory=list)
+    changed_pics: Dict[str, dict] = field(default_factory=dict)
+    changes_pics_inputs: List[dict] = field(default_factory=list)
