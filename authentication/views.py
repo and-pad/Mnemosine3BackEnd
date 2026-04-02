@@ -26,8 +26,8 @@ User = get_user_model()
 
 
 SECRET = "Ax100_2022_xLk8optaeqna9d5WdAfCeeGdLk84YgDe"
-ACCESS_LIFETIME = 60 * 60 * 4  # 4 horas
-REFRESH_LIFETIME = 60 * 60 * 24  # 24 horas
+ACCESS_LIFETIME = 2 * 60  # 2minutos #60 * 60 * 4  # 4 horas
+REFRESH_LIFETIME = 60 * 60  # 1 hora #60 * 60 * 24  # 24 horas
 
 
 class LoginSerializer(serializers.Serializer):

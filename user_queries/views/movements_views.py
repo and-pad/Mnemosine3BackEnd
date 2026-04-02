@@ -1,6 +1,4 @@
-import json
 import re
-import time
 
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
@@ -243,3 +241,24 @@ class MovementsManage(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+class MovementsNew(APIView):
+    permission_classes = [IsAuthenticated]
+    authentication_classes = [CustomJWTAuthentication]
+
+    # new get initial parameters
+    def get(self, request):
+        pass
+
+    # new
+    def post(self, request):
+        print("Data received", request.data)
+        return Response(
+            {"message": "Movimiento creado exitosamente"},
+            status=status.HTTP_201_CREATED,
+        )
+
+    # edit
+    def put(self, request, id):
+        pass
