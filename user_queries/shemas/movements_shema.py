@@ -4,7 +4,7 @@ from datetime import datetime
 from bson import ObjectId
 
 class MovementsSchema(BaseModel):
-    
+    movements_id: Optional[int] = None
     movement_type: Optional[str] = None
     itinerant: Optional[bool] = None
     institution_ids: Optional[list[ObjectId]] = None

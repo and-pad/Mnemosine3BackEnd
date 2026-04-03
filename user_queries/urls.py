@@ -7,7 +7,13 @@ from user_queries.views.inventory_views import (
     InventoryNew,
     InventoryPending,
 )
-from user_queries.views.movements_views import MovementsManage, MovementsNew
+from user_queries.views.movements_views import (
+    MovementContactsView,
+    MovementExhibitionsView,
+    MovementVenuesView,
+    MovementsManage,
+    MovementsNew,
+)
 from user_queries.views.query_views import UserQueryAll, UserQueryDetail
 from user_queries.views.research_views import ResearchEdit
 from user_queries.views.restoration_views import (
@@ -40,4 +46,7 @@ urlpatterns = [
     path("movements/manage", MovementsManage.as_view()),
     path("movements/manage/new/", MovementsNew.as_view()),
     path("movements/manage/edit/<str:id>/", MovementsNew.as_view()),
+    path("movements/manage/contacts/<str:institution_ids>/", MovementContactsView.as_view()),
+    path("movements/manage/exhibitions/<str:institution_ids>/", MovementExhibitionsView.as_view()),
+    path("movements/manage/venues/<str:institution_ids>/", MovementVenuesView.as_view()),
 ]  # + static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
