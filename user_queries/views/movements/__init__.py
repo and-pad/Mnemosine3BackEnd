@@ -1,11 +1,11 @@
-from user_queries.views.movements import (
+from .form import (
     MovementContactsView,
     MovementExhibitionsView,
-    MovementSelectPiecesView,
     MovementVenuesView,
-    MovementsManage,
     MovementsNew,
 )
+from .manage import MovementsManage
+from .pieces import MovementSelectPiecesView
 
 __all__ = [
     "MovementContactsView",

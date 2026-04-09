@@ -7,9 +7,10 @@ from user_queries.views.inventory_views import (
     InventoryNew,
     InventoryPending,
 )
-from user_queries.views.movements_views import (
+from user_queries.views.movements import (
     MovementContactsView,
     MovementExhibitionsView,
+    MovementSelectPiecesView,
     MovementVenuesView,
     MovementsManage,
     MovementsNew,
@@ -46,6 +47,11 @@ urlpatterns = [
     path("movements/manage", MovementsManage.as_view()),
     path("movements/manage/new/", MovementsNew.as_view()),
     path("movements/manage/edit/<str:id>/", MovementsNew.as_view()),
+    path("movements/manage/<str:id>/pieces/", MovementSelectPiecesView.as_view()),
+    path(
+        "movements/manage/<str:id>/select-pieces/",
+        MovementSelectPiecesView.as_view(),
+    ),
     path("movements/manage/contacts/<str:institution_ids>/", MovementContactsView.as_view()),
     path("movements/manage/exhibitions/<str:institution_ids>/", MovementExhibitionsView.as_view()),
     path("movements/manage/venues/<str:institution_ids>/", MovementVenuesView.as_view()),
