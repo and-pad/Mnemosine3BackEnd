@@ -1,0 +1,26 @@
+#!/bin/bash
+
+commitmsg="$*"
+
+# Quitar espacios en blanco (trim)
+commitmsg_trimmed=$(echo "$commitmsg" | xargs)
+
+# Validar si está vacío
+if [ -z "$commitmsg_trimmed" ]; then
+  echo "❌ Error: debes escribir un mensaje de commit"
+  echo "Ejemplo: ./Mibash.sh \"fix login bug\""
+  exit 1
+fi
+
+git add .
+
+# Validar si hay cambios antes de commitear
+if git diff --cached --quiet; then
+  echo "⚠️ No hay cambios para hacer commit"
+  exit 1
+fi
+
+git commit -m "$commitmsg_trimmed"
+git push
+
+echo "✅ Commit enviado: $commitmsg_trimmed"
