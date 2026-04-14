@@ -59,15 +59,17 @@ ptyprocess==0.7.0
 pure_eval==0.2.3
 pydantic==2.11.4
 pydantic_core==2.33.2
+Pygments==2.20.0
 PyJWT==2.8.0
 pymongo==4.15.4
 python-dateutil==2.9.0.post0
 python-docx==1.1.2
 pytz==2024.1
+pyzmq==27.1.0
 referencing==0.36.2
 requests==2.32.3
 rpds-py==0.25.1
-setuptools==74.1.0
+setuptools<81
 six==1.16.0
 soupsieve==2.7
 sqlparse==0.5.3
@@ -82,4 +84,5 @@ Unidecode==1.4.0
 urllib3==2.4.0
 wcwidth==0.2.13
 webencodings==0.5.1
+wheel==0.46.3
 yarg==0.1.9

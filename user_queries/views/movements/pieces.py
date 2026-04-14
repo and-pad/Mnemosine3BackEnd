@@ -58,6 +58,7 @@ class MovementSelectPiecesView(BaseMovementAPIView):
             "pieces_ids": selected_piece_ids,
             "updated_at": movement.get("updated_at"),
             "updated_by": movement.get("updated_by"),
+            "authorized_by_movements": ObjectId(request.user.id),
         }
         movement_update = AuditManager().add_updateInfo(
             movement_update, ObjectId(request.user.id)
