@@ -4,6 +4,7 @@ from rest_framework.response import Response
 
 from user_queries.mongo_queries import PIECES_ALL
 from user_queries.views.tools import AuditManager
+from user_queries.shemas.movements_shema import MovementsSchema
 
 from .base import BaseMovementAPIView, get_movement_document, parse_object_id_list, serialize_mongo
 
@@ -17,8 +18,10 @@ def get_serialized_pieces(mongo):
         )
         return [serialize_mongo(document) for document in documents]
 
-    documents = list(mongo.connect("pieces").aggregate(PIECES_ALL))
-    return [serialize_mongo(document) for document in documents]
+    #documents = list(mongo.connect("pieces").aggregate(PIECES_ALL))
+    raise Exception("La colección 'pieces_search_serialized' no existe. Por favor, ejecute el proceso de serialización de piezas para generar esta colección antes de intentar obtener las piezas.")    
+    return 
+#[serialize_mongo(document) for document in documents]
 
 
 class MovementSelectPiecesView(BaseMovementAPIView):
@@ -38,7 +41,6 @@ class MovementSelectPiecesView(BaseMovementAPIView):
             {
                 "movement_id": movement.get("movements_id"),
                 "selected_piece_ids": selected_piece_ids,
-                "pieces": get_serialized_pieces(mongo),
             },
             status=status.HTTP_200_OK,
         )
@@ -56,13 +58,15 @@ class MovementSelectPiecesView(BaseMovementAPIView):
         selected_piece_ids = parse_object_id_list(request.data.get("piece_ids", []))
         movement_update = {
             "pieces_ids": selected_piece_ids,
-            "updated_at": movement.get("updated_at"),
-            "updated_by": movement.get("updated_by"),
-            "authorized_by_movements": ObjectId(request.user.id),
         }
         movement_update = AuditManager().add_updateInfo(
             movement_update, ObjectId(request.user.id)
-        )
+        )        
+        movement_update = MovementsSchema(**movement_update).model_dump(exclude_none=True)        
+
+
+        #photos = self.get_pieces_photos(mongo, selected_piece_ids)       
+
 
         mongo.connect("movements").update_one(
             {"_id": movement["_id"]},
@@ -73,7 +77,11 @@ class MovementSelectPiecesView(BaseMovementAPIView):
             {
                 "movement_id": movement.get("movements_id"),
                 "selected_piece_ids": [str(piece_id) for piece_id in selected_piece_ids],
+             
                 "message": "Piezas asociadas exitosamente",
             },
             status=status.HTTP_200_OK,
         )
+    
+    
+   

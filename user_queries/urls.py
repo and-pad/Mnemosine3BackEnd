@@ -8,8 +8,13 @@ from user_queries.views.inventory_views import (
     InventoryPending,
 )
 from user_queries.views.movements import (
+    MovementAuthorizeView,
     MovementContactsView,
     MovementExhibitionsView,
+    MovementInfoView,
+    MovementProrogationUpdateView,
+    MovementRejectView,
+    MovementReturnPiecesView,
     MovementSelectPiecesView,
     MovementVenuesView,
     MovementsManage,
@@ -48,9 +53,20 @@ urlpatterns = [
     path("movements/manage/new/", MovementsNew.as_view()),
     path("movements/manage/edit/<str:id>/", MovementsNew.as_view()),
     path("movements/manage/<str:id>/pieces/", MovementSelectPiecesView.as_view()),
+    path("movements/manage/<str:id>/info/", MovementInfoView.as_view()),
+    path(
+        "movements/manage/<str:id>/return-pieces/",
+        MovementReturnPiecesView.as_view(),
+    ),
+    path("movements/manage/<str:id>/authorize/", MovementAuthorizeView.as_view()),
+    path("movements/manage/<str:id>/reject/", MovementRejectView.as_view()),
     path(
         "movements/manage/<str:id>/select-pieces/",
         MovementSelectPiecesView.as_view(),
+    ),
+    path(
+        "movements/manage/prorogations/<str:id>/",
+        MovementProrogationUpdateView.as_view(),
     ),
     path("movements/manage/contacts/<str:institution_ids>/", MovementContactsView.as_view()),
     path("movements/manage/exhibitions/<str:institution_ids>/", MovementExhibitionsView.as_view()),

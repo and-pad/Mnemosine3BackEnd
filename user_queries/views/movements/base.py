@@ -1,8 +1,10 @@
 import json
+import random
 import re
 from datetime import datetime
+import string
 
-from bson import ObjectId
+from bson import Decimal128, ObjectId
 from django.conf import settings
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
@@ -10,6 +12,46 @@ from rest_framework.views import APIView
 from authentication.custom_jwt import CustomJWTAuthentication
 from user_queries.driver_database.mongo import Mongo
 
+def bson_to_json_serializable(doc):
+        """Convierte ObjectId, Decimal128 y datetime a tipos serializables."""
+        if isinstance(doc, ObjectId):
+            return str(doc)  # Convierte ObjectId a string
+        elif isinstance(doc, Decimal128):
+            return float(doc.to_decimal())  # Convierte Decimal128 a float
+        elif isinstance(doc, datetime):
+            return doc.isoformat()  # Convierte datetime a formato ISO 8601
+        elif isinstance(doc, dict):
+            return {
+                k: bson_to_json_serializable(v) for k, v in doc.items()
+            }  # Recorre el diccionario
+        elif isinstance(doc, list):
+            return [bson_to_json_serializable(v) for v in doc]  # Recorre la lista
+        else:
+            return doc  # Retorna el valor sin cambios si ya es serializable
+        
+def generate_unique_code_version(length=120):
+        alphabet = string.ascii_letters + string.digits
+        return "".join(random.choices(alphabet, k=length))
+
+def generation_status_manager(mongo):
+    db = mongo   
+    if not mongo.checkIfExistCollection("pieces_search_serialized"):       
+        try: 
+            db.connect("generation_status").insert_one({"status": "generating"})
+            cursor = db.connect("pieces_search").find().sort("inventory_number", 1)
+            documents = [bson_to_json_serializable(doc) for doc in cursor]
+            db.connect("pieces_search_serialized").insert_many(documents)
+
+            new_code = generate_unique_code_version()
+            db.connect("pieces_search_serialized").insert_one(
+                {"_id": "1code", "unique_code": new_code}
+            )
+            
+            db.checkAndDropIfExistCollection("generation_status")
+
+        except Exception as e:
+            db.checkAndDropIfExistCollection("generation_status")
+            raise e
 
 def parse_object_id(value):
     if isinstance(value, ObjectId):
