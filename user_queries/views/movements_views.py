@@ -1,17 +1,33 @@
 from user_queries.views.movements import (
+    ContactDetailView,
+    ContactsView,
+    ExhibitionDetailView,
+    ExhibitionsView,
+    InstitutionDetailView,
+    InstitutionsView,
     MovementContactsView,
     MovementExhibitionsView,
     MovementSelectPiecesView,
     MovementVenuesView,
     MovementsManage,
     MovementsNew,
+    VenueDetailView,
+    VenuesView,
 )
 
 __all__ = [
+    "ContactDetailView",
+    "ContactsView",
+    "ExhibitionDetailView",
+    "ExhibitionsView",
+    "InstitutionDetailView",
+    "InstitutionsView",
     "MovementContactsView",
     "MovementExhibitionsView",
     "MovementSelectPiecesView",
     "MovementVenuesView",
     "MovementsManage",
     "MovementsNew",
+    "VenueDetailView",
+    "VenuesView",
 ]

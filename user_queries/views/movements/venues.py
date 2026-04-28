@@ -1,0 +1,302 @@
+from datetime import datetime
+
+from bson import ObjectId
+from django.conf import settings
+from rest_framework import status
+from rest_framework.response import Response
+
+from user_queries.shemas.venues_shema import VenuesSchema
+from user_queries.views.tools import AuditManager
+
+from .base import (
+    BaseMovementAPIView,
+    escape_search,
+    parse_object_id,
+    serialize_mongo,
+)
+
+
+def serialize_catalog_option(document):
+    if not document:
+        return None
+
+    serialized = serialize_mongo(document)
+    serialized["id"] = serialized.get("_id")
+    serialized["name"] = (
+        serialized.get("name")
+        or serialized.get("title")
+        or serialized.get("description")
+        or ""
+    )
+    return serialized
+
+
+def serialize_venue(document):
+    serialized = serialize_mongo(document)
+    serialized["id"] = serialized.get("_id")
+    return serialized
+
+
+def get_institutions_catalog(mongo):
+    institutions = list(
+        mongo.connect("institutions")
+        .find({"deleted_at": None}, {"name": 1})
+        .sort("name", 1)
+    )
+    return [serialize_catalog_option(item) for item in institutions]
+
+
+def get_contacts_catalog_by_institution(mongo, institution_id):
+    if not institution_id:
+        return []
+
+    contacts = list(
+        mongo.connect("contacts")
+        .find(
+            {"institution_id": institution_id, "deleted_at": None},
+            {"name": 1, "last_name": 1, "institution_id": 1},
+        )
+        .sort([("name", 1), ("last_name", 1)])
+    )
+
+    serialized_contacts = []
+    for contact in contacts:
+        serialized = serialize_catalog_option(contact)
+        serialized["full_name"] = " ".join(
+            [part for part in [serialized.get("name"), serialized.get("last_name")] if part]
+        ).strip()
+        serialized_contacts.append(serialized)
+
+    return serialized_contacts
+
+
+def build_venue_payload(payload):
+    return {
+        "name": payload.get("name"),
+        "address": payload.get("address"),
+        "institution_id": parse_object_id(payload.get("institution_id")),
+        "contact_id": parse_object_id(payload.get("contact_id")),
+        "start_venue": payload.get("start_venue"),
+        "end_venue": payload.get("end_venue"),
+    }
+
+
+def validate_venue_payload(payload):
+    errors = {}
+
+    if not payload.get("name"):
+        errors["name"] = "El nombre es un campo requerido"
+    if not payload.get("address"):
+        errors["address"] = "La direccion es un campo requerido"
+    if not payload.get("institution_id"):
+        errors["institution_id"] = "La institucion es un campo requerido"
+    if not payload.get("contact_id"):
+        errors["contact_id"] = "El contacto es un campo requerido"
+
+    return errors
+
+
+class VenuesView(BaseMovementAPIView):
+    def get(self, request):
+        mongo = self.get_mongo()
+        search = (request.query_params.get("search") or "").strip()
+
+        query = {"deleted_at": None}
+        if search:
+            regex = escape_search(search)
+            query["$or"] = [
+                {"name": regex},
+                {"address": regex},
+            ]
+
+        venues = list(mongo.connect("venues").find(query).sort("name", 1))
+
+        institution_ids = list(
+            {item.get("institution_id") for item in venues if item.get("institution_id")}
+        )
+        contact_ids = list(
+            {item.get("contact_id") for item in venues if item.get("contact_id")}
+        )
+
+        institutions_map = {}
+        contacts_map = {}
+
+        if institution_ids:
+            institutions_map = {
+                str(institution["_id"]): institution.get("name", "")
+                for institution in mongo.connect("institutions").find(
+                    {"_id": {"$in": institution_ids}},
+                    {"name": 1},
+                )
+            }
+
+        if contact_ids:
+            contacts_map = {
+                str(contact["_id"]): " ".join(
+                    [
+                        part
+                        for part in [contact.get("name"), contact.get("last_name")]
+                        if part
+                    ]
+                ).strip()
+                for contact in mongo.connect("contacts").find(
+                    {"_id": {"$in": contact_ids}},
+                    {"name": 1, "last_name": 1},
+                )
+            }
+
+        serialized_venues = []
+        for venue in venues:
+            serialized = serialize_venue(venue)
+            institution_id = serialized.get("institution_id")
+            contact_id = serialized.get("contact_id")
+            serialized["institution_name"] = (
+                institutions_map.get(str(institution_id)) if institution_id else None
+            )
+            serialized["contact_name"] = (
+                contacts_map.get(str(contact_id)) if contact_id else None
+            )
+            serialized_venues.append(serialized)
+
+        return Response(
+            {
+                "data": serialized_venues,
+                "institutions": get_institutions_catalog(mongo),
+                "contacts": [],
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    def post(self, request):
+        mongo = self.get_mongo()
+        venue_data = build_venue_payload(request.data)
+        errors = validate_venue_payload(venue_data)
+
+        if errors:
+            return Response(
+                {"error": "Datos invalidos", "errors": errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        venue_data = AuditManager().add_timestampsInfo(
+            venue_data, ObjectId(request.user.id)
+        )
+        venue_payload = VenuesSchema(**venue_data).model_dump(exclude_none=False)
+
+        result = mongo.connect("venues").insert_one(venue_payload)
+        created = mongo.connect("venues").find_one({"_id": result.inserted_id})
+
+        return Response(
+            {
+                "message": "Sede creada exitosamente",
+                "venue": serialize_venue(created),
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class VenueDetailView(BaseMovementAPIView):
+    def get_venue(self, mongo, venue_id):
+        parsed_id = parse_object_id(venue_id)
+        if not parsed_id:
+            return None
+
+        return mongo.connect("venues").find_one(
+            {"_id": parsed_id, "deleted_at": None}
+        )
+
+    def get(self, request, id):
+        mongo = self.get_mongo()
+        venue = self.get_venue(mongo, id)
+
+        if not venue:
+            return Response(
+                {"error": "Sede no encontrada"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        return Response(
+            {
+                "venue": serialize_venue(venue),
+                "institutions": get_institutions_catalog(mongo),
+                "contacts": get_contacts_catalog_by_institution(
+                    mongo, venue.get("institution_id")
+                ),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    def put(self, request, id):
+        mongo = self.get_mongo()
+        venue = self.get_venue(mongo, id)
+
+        if not venue:
+            return Response(
+                {"error": "Sede no encontrada"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        venue_data = build_venue_payload(request.data)
+        errors = validate_venue_payload(venue_data)
+
+        if errors:
+            return Response(
+                {"error": "Datos invalidos", "errors": errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        venue_data["created_at"] = venue.get("created_at")
+        venue_data["created_by"] = venue.get("created_by")
+        venue_data["updated_at"] = venue.get("updated_at")
+        venue_data["updated_by"] = venue.get("updated_by")
+        venue_data["deleted_at"] = venue.get("deleted_at")
+        venue_data["deleted_by"] = venue.get("deleted_by")
+        venue_data = AuditManager().add_updateInfo(
+            venue_data, ObjectId(request.user.id)
+        )
+        venue_payload = VenuesSchema(**venue_data).model_dump(exclude_none=False)
+
+        mongo.connect("venues").update_one(
+            {"_id": venue["_id"]},
+            {"$set": venue_payload},
+        )
+        updated = mongo.connect("venues").find_one({"_id": venue["_id"]})
+
+        return Response(
+            {
+                "message": "Sede actualizada exitosamente",
+                "venue": serialize_venue(updated),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    def delete(self, request, id):
+        mongo = self.get_mongo()
+        venue = self.get_venue(mongo, id)
+
+        if not venue:
+            return Response(
+                {"error": "Sede no encontrada"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if venue.get("name") == getattr(settings, "INSTITUTION_NAME", None):
+            return Response(
+                {"error": "No se puede eliminar la sede interna configurada"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        mongo.connect("venues").update_one(
+            {"_id": venue["_id"]},
+            {
+                "$set": {
+                    "deleted_at": datetime.now(AuditManager.tz),
+                    "deleted_by": ObjectId(request.user.id),
+                }
+            },
+        )
+
+        return Response(
+            {"message": "Sede eliminada exitosamente"},
+            status=status.HTTP_200_OK,
+        )

@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import Optional
 from datetime import datetime
 from bson import ObjectId
@@ -14,6 +14,15 @@ class ExhibitionsSchema(BaseModel):
     updated_by: Optional[ObjectId] = None
     deleted_by: Optional[ObjectId] = None
 
+    @field_validator("name", mode="before")
+    @classmethod
+    def normalize_optional_strings(cls, value):
+        if value is None:
+            return None
+        if isinstance(value, str):
+            value = value.strip()
+            return value or None
+        return value
+
     class Config:
         arbitrary_types_allowed = True
-    

@@ -8,6 +8,12 @@ from user_queries.views.inventory_views import (
     InventoryPending,
 )
 from user_queries.views.movements import (
+    ContactDetailView,
+    ContactsView,
+    ExhibitionDetailView,
+    ExhibitionsView,
+    InstitutionDetailView,
+    InstitutionsView,
     MovementAuthorizeView,
     MovementContactsView,
     MovementExhibitionsView,
@@ -19,6 +25,8 @@ from user_queries.views.movements import (
     MovementVenuesView,
     MovementsManage,
     MovementsNew,
+    VenueDetailView,
+    VenuesView,
 )
 from user_queries.views.query_views import UserQueryAll, UserQueryDetail
 from user_queries.views.research_views import ResearchEdit
@@ -68,7 +76,24 @@ urlpatterns = [
         "movements/manage/prorogations/<str:id>/",
         MovementProrogationUpdateView.as_view(),
     ),
-    path("movements/manage/contacts/<str:institution_ids>/", MovementContactsView.as_view()),
-    path("movements/manage/exhibitions/<str:institution_ids>/", MovementExhibitionsView.as_view()),
-    path("movements/manage/venues/<str:institution_ids>/", MovementVenuesView.as_view()),
+    path(
+        "movements/manage/contacts/<str:institution_ids>/",
+        MovementContactsView.as_view(),
+    ),
+    path(
+        "movements/manage/exhibitions/<str:institution_ids>/",
+        MovementExhibitionsView.as_view(),
+    ),
+    path(
+        "movements/manage/venues/<str:institution_ids>/",
+        MovementVenuesView.as_view(),
+    ),
+    path("institutions/", InstitutionsView.as_view()),
+    path("institutions/<str:id>/", InstitutionDetailView.as_view()),
+    path("contacts/", ContactsView.as_view()),
+    path("contacts/<str:id>/", ContactDetailView.as_view()),
+    path("exhibitions/", ExhibitionsView.as_view()),
+    path("exhibitions/<str:id>/", ExhibitionDetailView.as_view()),
+    path("venues/", VenuesView.as_view()),
+    path("venues/<str:id>/", VenueDetailView.as_view()),
 ]  # + static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
