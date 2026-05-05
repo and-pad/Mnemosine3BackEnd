@@ -30,6 +30,16 @@ from user_queries.views.movements import (
 )
 from user_queries.views.query_views import UserQueryAll, UserQueryDetail
 from user_queries.views.research_views import ResearchEdit
+from user_queries.views.reports import (
+    ReportDetailView,
+    ReportPdfView,
+    ReportPiecesView,
+    ReportPreviewView,
+    ReportTemplateDetailView,
+    ReportTemplatesView,
+    ReportsMetaView,
+    ReportsView,
+)
 from user_queries.views.restoration_views import (
     RestorationEdit,
     RestorationEditSelect,
@@ -96,4 +106,12 @@ urlpatterns = [
     path("exhibitions/<str:id>/", ExhibitionDetailView.as_view()),
     path("venues/", VenuesView.as_view()),
     path("venues/<str:id>/", VenueDetailView.as_view()),
+    path("reports/", ReportsView.as_view()),
+    path("reports/meta/", ReportsMetaView.as_view()),
+    path("reports/pieces/", ReportPiecesView.as_view()),
+    path("reports/<str:id>/preview/", ReportPreviewView.as_view()),
+    path("reports/<str:id>/pdf/", ReportPdfView.as_view()),
+    path("reports/<str:id>/", ReportDetailView.as_view()),
+    path("report-templates/", ReportTemplatesView.as_view()),
+    path("report-templates/<str:id>/", ReportTemplateDetailView.as_view()),
 ]  # + static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)

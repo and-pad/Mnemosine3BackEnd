@@ -54,6 +54,7 @@ class UserQueryAll(APIView):
         mongo = Mongo()
         db = mongo
         time = datetime.now()
+        print("now", time)
 
         # Esperar si alguien más ya está generando
         while mongo.checkIfExistCollection("generation_status"):
@@ -94,6 +95,7 @@ class UserQueryAll(APIView):
         )
         documents = [self.bson_to_json_serializable(doc) for doc in serialized_json_data]
         time_end = datetime.now() - time
+        print("time end", time_end)
 
         return Response(
             {"query": documents, "code": new_code, "query_duration": time_end},

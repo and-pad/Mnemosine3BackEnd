@@ -880,8 +880,8 @@ class InventoryEdit(APIView):
                         pieces_search = mongo.connect("pieces_search")
 
                         # print("Pieces_one",Pieces_one)
-                        PIECES_ALL.insert(0, {"$match": {"_id": ObjectId(_id)}})
-                        cursor = piece.aggregate(PIECES_ALL)
+                        pipeline = [{"$match": {"_id": ObjectId(_id)}}] + list(PIECES_ALL)
+                        cursor = piece.aggregate(pipeline)
                         print("cursor", cursor)
                         for document in cursor:
                             print("document", document)

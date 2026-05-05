@@ -613,14 +613,6 @@ PIECES_ALL = [
         }
     },
     {
-        "$lookup": {
-            "from": "catalogs",
-            "localField": "type_object_info.catalog_id",
-            "foreignField": "_id",
-            "as": "catalog_type_object_info",
-        }
-    },
-    {
         "$lookup": {  # este campo tiene guardado como string separado por comas los ids lo que requiere otro procesamiento
             "from": "catalog_elements",
             "localField": "research_info.author_ids",
@@ -645,31 +637,20 @@ PIECES_ALL = [
         }
     },
     {
-        "$lookup": {
-            "from": "catalog_elements",
-            "let": {"involvedCreationIds": {"$ifNull": ["$involved_creation_ids", []]}},
-            "pipeline": [
-                {
-                    "$match": {
-                        "$expr": {
-                            "$and": [
-                                {"$in": ["$_id", "$$involvedCreationIds"]},
-                                {"$eq": ["$deleted_at", None]},
-                            ]
-                        }
-                    }
-                }
-            ],
-            "as": "involved_creation_info",
-        }
-    },
+    "$lookup": {
+        "from": "catalog_elements",
+        "localField": "research_info.involved_creation_ids",
+        "foreignField": "_id",      
+        "as": "involved_creation_info",
+    }
+},
     {
         "$lookup": {
             "from": "photographs",
             "let": {"piece_id": "$_id"},
             "pipeline": [
                 {"$match": {"$expr": {"$eq": ["$piece_id", "$$piece_id"]}}},
-                {"$match": {"$expr": {"$eq": ["$deleted_at", None]}}},
+                {"$match": {"deleted_at": None}},
                 {
                     "$lookup": {
                         "from": "modules",
@@ -683,6 +664,7 @@ PIECES_ALL = [
                 {"$sort": {"main_photogrphy": -1}},
                 # Limitar el resultado a solo 1
                 {"$limit": 1},
+                {"$project": {"_id": 0, "file_name": 1}},
             ],
             "as": "photo_thumb_info",
         }

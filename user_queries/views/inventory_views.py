@@ -129,12 +129,12 @@ class InventoryNew(APIView):
                             request, mongo, session, cursor_change, _id
                         )
                         # Le agregamos un match al pipeline para traer solo la pieza nueva
-                        PIECES_ALL.insert(
-                            0, {"$match": {"_id": ObjectId(new_piece_id)}}
-                        )
+                        pipeline = [
+                            {"$match": {"_id": ObjectId(new_piece_id)}}
+                        ] + list(PIECES_ALL)
                         piece = mongo.connect("pieces")
                         pieces_search = mongo.connect("pieces_search")
-                        cursor = piece.aggregate(PIECES_ALL, session=session)
+                        cursor = piece.aggregate(pipeline, session=session)
                         for document in cursor:
                             print("document", document)
                             pieces_search.insert_one(document, session=session)

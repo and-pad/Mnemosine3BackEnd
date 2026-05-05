@@ -243,8 +243,8 @@ class RestorationEdit(APIView):
         pieces_search = mongo.connect("pieces_search")       
         #PIECES_ALL es una consulta mongo grande para obtener todos los datos para enviar al front end
         #Aqui se le agrega el filtro por id de pieza, para que solo se actualice la pieza que se ha editado
-        PIECES_ALL.insert(0, {"$match": {"_id": ObjectId(_id)}})        
-        cursor = piece.aggregate(PIECES_ALL, session=session)
+        pipeline = [{"$match": {"_id": ObjectId(_id)}}] + list(PIECES_ALL)
+        cursor = piece.aggregate(pipeline, session=session)
         # print("cursor", cursor)
         for document in cursor:
             #reemplazamos el documento porque ha sido editado
