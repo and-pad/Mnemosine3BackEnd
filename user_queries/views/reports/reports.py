@@ -8,7 +8,6 @@ from rest_framework.response import Response
 from user_queries.shemas.reports_shema import ReportsSchema
 from user_queries.views.movements.base import BaseMovementAPIView
 from user_queries.views.tools import AuditManager
-from django.conf import settings
 
 from .constants import REPORT_COLUMNS
 from .helpers import (
@@ -17,35 +16,56 @@ from .helpers import (
     ensure_piece_search_collections,
     filter_report_pieces_by_ids,
     get_report_document,
-    get_reports_catalogs,
-    get_reports_lookup_maps,
-    get_reports_users_map,
+    get_report_images,
     get_report_pieces,
+    get_reports_catalogs,
+    get_reports_users_map,
     split_csv,
     serialize_piece_row,
     serialize_report,
     validate_report_payload,
-    get_report_images,
 )
 from .rendering import build_piece_section, render_report_pdf
 
 logger = logging.getLogger(__name__)
 
 
+def build_rendered_report(mongo, report, selected_piece_ids=None):
+    users_map = get_reports_users_map(mongo)
+    serialized_report = serialize_report(report, users_map)
+    selected_columns = serialized_report.get("columns_list") or []
+
+    pieces = get_report_pieces(mongo, report)
+    pieces = filter_report_pieces_by_ids(pieces, selected_piece_ids or [])
+
+    image_ids = selected_piece_ids or [str(piece.get("_id")) for piece in pieces]
+    images_map = get_report_images(
+        mongo,
+        report,
+        thumbnails_path=None,
+        selected_piece_ids=image_ids,
+    )
+
+    rendered_pieces = [
+        build_piece_section(
+            piece,
+            selected_columns,
+            images_map.get(str(piece.get("_id"))),
+        )
+        for piece in pieces
+    ]
+
+    return serialized_report, selected_columns, rendered_pieces
+
+
 class ReportsView(BaseMovementAPIView):
     def get(self, request):
         mongo = self.get_mongo()
         reports = list(mongo.connect("reports").find({"deleted_at": None}).sort("name", 1))
-        institutions_map, exhibitions_map = get_reports_lookup_maps(mongo)
         users_map = get_reports_users_map(mongo)
 
         return Response(
-            {
-                "data": [
-                    serialize_report(item, institutions_map, exhibitions_map, users_map)
-                    for item in reports
-                ]
-            },
+            {"data": [serialize_report(item, users_map) for item in reports]},
             status=status.HTTP_200_OK,
         )
 
@@ -66,15 +86,12 @@ class ReportsView(BaseMovementAPIView):
         report_payload = ReportsSchema(**report_data).model_dump(exclude_none=False)
         result = mongo.connect("reports").insert_one(report_payload)
         created = mongo.connect("reports").find_one({"_id": result.inserted_id})
-        institutions_map, exhibitions_map = get_reports_lookup_maps(mongo)
         users_map = get_reports_users_map(mongo)
 
         return Response(
             {
                 "message": "Reporte creado exitosamente",
-                "report": serialize_report(
-                    created, institutions_map, exhibitions_map, users_map
-                ),
+                "report": serialize_report(created, users_map),
             },
             status=status.HTTP_201_CREATED,
         )
@@ -97,12 +114,9 @@ class ReportDetailView(BaseMovementAPIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        institutions_map, exhibitions_map = get_reports_lookup_maps(mongo)
         users_map = get_reports_users_map(mongo)
         response_data = get_reports_catalogs(mongo)
-        response_data["report"] = serialize_report(
-            report, institutions_map, exhibitions_map, users_map
-        )
+        response_data["report"] = serialize_report(report, users_map)
         return Response(response_data, status=status.HTTP_200_OK)
 
     def put(self, request, id):
@@ -137,15 +151,12 @@ class ReportDetailView(BaseMovementAPIView):
             {"$set": report_payload},
         )
         updated = mongo.connect("reports").find_one({"_id": report["_id"]})
-        institutions_map, exhibitions_map = get_reports_lookup_maps(mongo)
         users_map = get_reports_users_map(mongo)
 
         return Response(
             {
                 "message": "Reporte actualizado exitosamente",
-                "report": serialize_report(
-                    updated, institutions_map, exhibitions_map, users_map
-                ),
+                "report": serialize_report(updated, users_map),
             },
             status=status.HTTP_200_OK,
         )
@@ -198,6 +209,7 @@ class ReportPiecesView(BaseMovementAPIView):
                     "description_origin": 1,
                     "research_info.title": 1,
                     "location_info.name": 1,
+                    "photo_thumb_info.file_name": 1,
                 },
             )
             .sort("inventory_number", 1)
@@ -227,17 +239,12 @@ class ReportPreviewView(BaseMovementAPIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        institutions_map, exhibitions_map = get_reports_lookup_maps(mongo)
-        users_map = get_reports_users_map(mongo)
-        serialized_report = serialize_report(
-            report, institutions_map, exhibitions_map, users_map
+        selected_piece_ids = split_csv(request.query_params.get("selected_piece_ids"))
+        serialized_report, selected_columns, rendered_pieces = build_rendered_report(
+            mongo,
+            report,
+            selected_piece_ids,
         )
-        selected_columns = serialized_report.get("columns_list") or []
-        pieces = get_report_pieces(mongo, report)
-        rendered_pieces = [
-            build_piece_section(piece, selected_columns)
-            for piece in pieces
-        ]
 
         return Response(
             {
@@ -263,28 +270,12 @@ class ReportPdfView(BaseMovementAPIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        #institutions_map, exhibitions_map = get_reports_lookup_maps(mongo)
-        
-
-
-        users_map = get_reports_users_map(mongo)
-        serialized_report = serialize_report(
-            report, users_map
-        )
-
-        selected_columns = serialized_report.get("columns_list") or []
-        pieces = get_report_pieces(mongo, report)
         selected_piece_ids = split_csv(request.query_params.get("selected_piece_ids"))
-        pieces = filter_report_pieces_by_ids(pieces, selected_piece_ids)
-
-        rendered_pieces = [
-            build_piece_section(piece, selected_columns)
-            for piece in pieces
-        ]
-
-        TumbnailsInventoryPath = settings.THUMBNAILS_INVENTORY_PATH
-        images = get_report_images(mongo, report, TumbnailsInventoryPath)
-
+        serialized_report, _, rendered_pieces = build_rendered_report(
+            mongo,
+            report,
+            selected_piece_ids,
+        )
 
         try:
             _, pdf_bytes = render_report_pdf(serialized_report, rendered_pieces)

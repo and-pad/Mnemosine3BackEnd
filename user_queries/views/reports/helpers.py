@@ -1,3 +1,6 @@
+import os
+from django.conf import settings
+
 from bson import ObjectId
 from bson.errors import InvalidId
 
@@ -314,6 +317,44 @@ def filter_report_pieces_by_ids(pieces, selected_piece_ids):
     allowed = {str(piece_id) for piece_id in selected_piece_ids if piece_id}
     return [piece for piece in pieces if str(piece.get("_id")) in allowed]
 
-def get_report_images(mongo, report, tumbnails_path):
-    pass
+def to_object_ids(ids):
+    return [ObjectId(i) for i in ids if i]
+
+def get_report_images(mongo, report, thumbnails_path, selected_piece_ids=None):
+    if not selected_piece_ids:
+        return {}
+    if not thumbnails_path:
+        thumbnails_path = settings.THUMBNAILS_INVENTORY_PATH
+
+    collection = mongo.connect("photographs")
+    selected_piece_ids = to_object_ids(selected_piece_ids)
+    cursor = collection.find(
+        {"piece_id": {"$in": selected_piece_ids}},
+        {"file_name": 1, "piece_id": 1, "main": 1}
+    ).sort([
+        ("piece_id", 1),   # agrupa visualmente
+        ("main", 1)        # prioridad a la principal
+    ])
+
+    images_map = {}
+    for doc in cursor:
+        piece_id = str(doc["piece_id"])
+
+        # 🔒 ya tenemos imagen para esta pieza → skip
+        if piece_id in images_map:
+            continue
+
+        file_name = doc.get("file_name")
+        if not file_name:
+            continue
+
+        full_path = os.path.join(thumbnails_path, file_name)
+
+        # opcional pero recomendado (evita PDFs rotos)
+        if not os.path.exists(full_path):
+            continue
+
+        images_map[piece_id] = full_path
+
+    return images_map
    

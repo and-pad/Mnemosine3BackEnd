@@ -60,7 +60,7 @@ def _resolve_inventory_image_path(piece):
     if not file_name:
         return None
 
-    image_path = Path(settings.THUMBNAILS_INVENTORY_PATH) / file_name
+    image_path = Path( settings.THUMBNAILS_INVENTORY_PATH) / file_name
     return image_path if image_path.exists() else None
 
 
@@ -157,8 +157,9 @@ def resolve_report_value(piece, column_id):
     return value
 
 
-def build_piece_section(piece, selected_columns):
+def build_piece_section(piece, selected_columns, image=None):
     piece_id = str(piece.get("_id"))
+
     title = (
         _get_nested_value(piece, ["research_info", "title"])
         or piece.get("description_inventory")
@@ -179,20 +180,35 @@ def build_piece_section(piece, selected_columns):
         "fields": [],
     }
 
+    # 🔥 Imagen principal (la nueva)
+    if image:
+        section["fields"].append({
+            "id": "main_image",
+            "label": "Imagen",
+            "type": "image",
+            "value": image,
+            "file_path": image,
+            "preview_url": _filesystem_path_to_static_url(image),
+        })
+
     for column_id in selected_columns:
         value = resolve_report_value(piece, column_id)
         if value in (None, "", [], {}):
             continue
 
+        is_image = hasattr(value, "exists")
+
         field = {
             "id": column_id,
             "label": REPORT_COLUMNS.get(column_id, column_id),
-            "type": "image" if hasattr(value, "exists") else "text",
-            "value": str(value) if not hasattr(value, "exists") else str(value),
+            "type": "image" if is_image else "text",
+            "value": str(value),
         }
-        if field["type"] == "image":
+
+        if is_image:
             field["file_path"] = str(value)
             field["preview_url"] = _filesystem_path_to_static_url(value)
+
         section["fields"].append(field)
 
     return section
