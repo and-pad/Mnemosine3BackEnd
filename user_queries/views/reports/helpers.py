@@ -333,7 +333,7 @@ def get_report_images(mongo, report, thumbnails_path, selected_piece_ids=None):
         {"file_name": 1, "piece_id": 1, "main": 1}
     ).sort([
         ("piece_id", 1),   # agrupa visualmente
-        ("main", 1)        # prioridad a la principal
+        ("main_photogrphy", 1)        # prioridad a la principal
     ])
 
     images_map = {}

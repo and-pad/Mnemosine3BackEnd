@@ -1,5 +1,15 @@
 from django.urls import path
 
+from user_queries.views.catalogs_views import (
+    CatalogDetailView,
+    CatalogElementDetailView,
+    CatalogElementsView,
+    CatalogsView,
+    GenderDetailView,
+    GendersView,
+    SubgenderDetailView,
+    SubgendersView,
+)
 from user_queries.views.dashboard_views import Dashboard
 from user_queries.views.generate_docx_views import GenerateDetailPieceDocx
 from user_queries.views.inventory_views import (
@@ -114,4 +124,12 @@ urlpatterns = [
     path("reports/<str:id>/", ReportDetailView.as_view()),
     path("report-templates/", ReportTemplatesView.as_view()),
     path("report-templates/<str:id>/", ReportTemplateDetailView.as_view()),
+    path("catalogs/", CatalogsView.as_view()),
+    path("catalogs/<str:id>/", CatalogDetailView.as_view()),
+    path("catalogs/<str:catalog_id>/elements/", CatalogElementsView.as_view()),
+    path("catalog-elements/<str:id>/", CatalogElementDetailView.as_view()),
+    path("genders/", GendersView.as_view()),
+    path("genders/<str:id>/", GenderDetailView.as_view()),
+    path("genders/<str:gender_id>/subgenders/", SubgendersView.as_view()),
+    path("subgenders/<str:id>/", SubgenderDetailView.as_view()),
 ]  # + static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
