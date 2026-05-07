@@ -177,19 +177,92 @@ class InventoryPending(APIView):
     permission_classes = [IsAuthenticated]
     authentication_classes = [CustomJWTAuthentication]
 
+    def _serialize(self, document):
+        return json.loads(json.dumps(document, default=str))
+
+    def _get_user_map(self, mongo, user_ids):
+        valid_ids = [user_id for user_id in user_ids if isinstance(user_id, ObjectId)]
+        if not valid_ids:
+            return {}
+
+        users = list(
+            mongo.connect("authentication_my_user").find(
+                {"_id": {"$in": valid_ids}},
+                {"username": 1, "email": 1},
+            )
+        )
+        return {
+            user["_id"]: {
+                "_id": str(user["_id"]),
+                "username": user.get("username") or "Usuario desconocido",
+                "email": user.get("email") or "",
+            }
+            for user in users
+        }
+
+    def _enrich_pending_items(self, items, mongo):
+        user_ids = [
+            item.get("created_by")
+            for item in items
+            if isinstance(item.get("created_by"), ObjectId)
+        ]
+        piece_ids = [
+            item.get("piece_id")
+            for item in items
+            if isinstance(item.get("piece_id"), ObjectId)
+        ]
+
+        user_map = self._get_user_map(mongo, user_ids)
+        piece_map = {}
+        if piece_ids:
+            pieces = list(
+                mongo.connect("pieces_search").find(
+                    {"_id": {"$in": piece_ids}},
+                    {
+                        "inventory_number": 1,
+                        "catalog_number": 1,
+                        "origin_number": 1,
+                        "description_inventory": 1,
+                    },
+                )
+            )
+            piece_map = {piece["_id"]: piece for piece in pieces}
+
+        enriched = []
+        for item in items:
+            serialized = self._serialize(item)
+            created_by = item.get("created_by")
+            piece_id = item.get("piece_id")
+
+            serialized["created_by_info"] = user_map.get(created_by)
+            if isinstance(piece_id, ObjectId):
+                serialized["piece_info"] = self._serialize(piece_map.get(piece_id))
+            else:
+                serialized["piece_info"] = None
+            enriched.append(serialized)
+
+        return enriched
+
     def get(self, request):
         mongo = Mongo()
         try:
-            response_data = list(
+            pending_items = list(
                 mongo.connect("inventory_change_approvals").find(
-                    {
-                        "approved_rejected": {"$exists": True, "$eq": None},
-                        "new_piece": {"$exists": True},
-                    }
+                    {"approved_rejected": {"$exists": True, "$eq": None}}
                 )
             )
-            response_data = json.loads(json.dumps(response_data, default=str))
-            print("response_data", response_data)
+
+            new_pieces = [
+                item for item in pending_items if "new_piece" in item
+            ]
+            modified_pieces = [
+                item for item in pending_items if "new_piece" not in item
+            ]
+
+            response_data = {
+                "new_pieces": self._enrich_pending_items(new_pieces, mongo),
+                "modified_pieces": self._enrich_pending_items(modified_pieces, mongo),
+            }
 
         except Exception as e:
             return Response(

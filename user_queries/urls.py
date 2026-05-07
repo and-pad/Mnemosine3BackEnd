@@ -12,6 +12,7 @@ from user_queries.views.catalogs_views import (
 )
 from user_queries.views.dashboard_views import Dashboard
 from user_queries.views.generate_docx_views import GenerateDetailPieceDocx
+from user_queries.views.inventory.history import InventoryHistoryView
 from user_queries.views.inventory_views import (
     InventoryEdit,
     InventoryNew,
@@ -74,6 +75,7 @@ urlpatterns = [
     path("piece_restorations/new/<str:_id>/", RestorationNew.as_view()),
     path("piece_restorations/insert/<str:_id>/", RestorationNew.as_view()),
     path("inventory_query/edit/<str:_id>/", InventoryEdit.as_view()),
+    path("inventory_query/history/<str:_id>/", InventoryHistoryView.as_view()),
     path("inventory_query/new/", InventoryNew.as_view()),
     path("inventory_query/new/<str:_id>/", InventoryNew.as_view()),
     path("inventory_query/pending/list/", InventoryPending.as_view()),

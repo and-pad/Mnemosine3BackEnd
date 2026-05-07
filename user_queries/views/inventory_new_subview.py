@@ -269,6 +269,7 @@ def process_put(request, mongo, session, cursor_change, _id):
         {"_id": ObjectId(_id), "approved_rejected": None},
         {
             "$set": {
+                "piece_id": Newpiece.inserted_id,
                 "approved_rejected_by": request.user.id,
                 "approved_rejected": True,
             }
