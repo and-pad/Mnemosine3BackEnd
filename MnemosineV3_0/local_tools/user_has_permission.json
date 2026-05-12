@@ -1,0 +1,713 @@
+{
+"model_has_permissions": [
+	{
+		"permission_id" : 21,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 2
+	},
+	{
+		"permission_id" : 25,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 56
+	},
+	{
+		"permission_id" : 21,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 4
+	},
+	{
+		"permission_id" : 22,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 2
+	},
+	{
+		"permission_id" : 26,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 56
+	},
+	{
+		"permission_id" : 22,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 4
+	},
+	{
+		"permission_id" : 23,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 2
+	},
+	{
+		"permission_id" : 27,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 56
+	},
+	{
+		"permission_id" : 23,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 4
+	},
+	{
+		"permission_id" : 24,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 2
+	},
+	{
+		"permission_id" : 28,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 56
+	},
+	{
+		"permission_id" : 24,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 4
+	},
+	{
+		"permission_id" : 39,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 56
+	},
+	{
+		"permission_id" : 38,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 2
+	},
+	{
+		"permission_id" : 21,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 3
+	},
+	{
+		"permission_id" : 22,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 3
+	},
+	{
+		"permission_id" : 23,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 3
+	},
+	{
+		"permission_id" : 24,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 3
+	},
+	{
+		"permission_id" : 37,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 3
+	},
+	{
+		"permission_id" : 39,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 33
+	},
+	{
+		"permission_id" : 40,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 33
+	},
+	{
+		"permission_id" : 9,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 7
+	},
+	{
+		"permission_id" : 10,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 7
+	},
+	{
+		"permission_id" : 11,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 7
+	},
+	{
+		"permission_id" : 13,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 7
+	},
+	{
+		"permission_id" : 14,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 7
+	},
+	{
+		"permission_id" : 15,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 7
+	},
+	{
+		"permission_id" : 16,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 7
+	},
+	{
+		"permission_id" : 17,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 7
+	},
+	{
+		"permission_id" : 25,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 7
+	},
+	{
+		"permission_id" : 26,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 7
+	},
+	{
+		"permission_id" : 27,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 7
+	},
+	{
+		"permission_id" : 28,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 7
+	},
+	{
+		"permission_id" : 33,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 7
+	},
+	{
+		"permission_id" : 40,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 56
+	},
+	{
+		"permission_id" : 39,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 11
+	},
+	{
+		"permission_id" : 9,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 23
+	},
+	{
+		"permission_id" : 10,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 23
+	},
+	{
+		"permission_id" : 11,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 23
+	},
+	{
+		"permission_id" : 12,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 23
+	},
+	{
+		"permission_id" : 17,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 23
+	},
+	{
+		"permission_id" : 18,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 23
+	},
+	{
+		"permission_id" : 19,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 23
+	},
+	{
+		"permission_id" : 20,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 23
+	},
+	{
+		"permission_id" : 34,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 7
+	},
+	{
+		"permission_id" : 35,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 7
+	},
+	{
+		"permission_id" : 36,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 7
+	},
+	{
+		"permission_id" : 39,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 7
+	},
+	{
+		"permission_id" : 40,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 7
+	},
+	{
+		"permission_id" : 41,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 7
+	},
+	{
+		"permission_id" : 42,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 7
+	},
+	{
+		"permission_id" : 43,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 7
+	},
+	{
+		"permission_id" : 44,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 7
+	},
+	{
+		"permission_id" : 9,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 8
+	},
+	{
+		"permission_id" : 10,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 8
+	},
+	{
+		"permission_id" : 11,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 8
+	},
+	{
+		"permission_id" : 21,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 8
+	},
+	{
+		"permission_id" : 22,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 8
+	},
+	{
+		"permission_id" : 23,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 8
+	},
+	{
+		"permission_id" : 9,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 34
+	},
+	{
+		"permission_id" : 13,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 34
+	},
+	{
+		"permission_id" : 33,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 34
+	},
+	{
+		"permission_id" : 34,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 34
+	},
+	{
+		"permission_id" : 35,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 34
+	},
+	{
+		"permission_id" : 9,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 16
+	},
+	{
+		"permission_id" : 10,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 16
+	},
+	{
+		"permission_id" : 11,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 16
+	},
+	{
+		"permission_id" : 9,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 9
+	},
+	{
+		"permission_id" : 10,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 9
+	},
+	{
+		"permission_id" : 11,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 9
+	},
+	{
+		"permission_id" : 21,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 9
+	},
+	{
+		"permission_id" : 22,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 9
+	},
+	{
+		"permission_id" : 23,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 9
+	},
+	{
+		"permission_id" : 17,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 16
+	},
+	{
+		"permission_id" : 18,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 16
+	},
+	{
+		"permission_id" : 19,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 16
+	},
+	{
+		"permission_id" : 20,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 16
+	},
+	{
+		"permission_id" : 21,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 16
+	},
+	{
+		"permission_id" : 22,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 16
+	},
+	{
+		"permission_id" : 23,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 16
+	},
+	{
+		"permission_id" : 24,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 16
+	},
+	{
+		"permission_id" : 25,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 16
+	},
+	{
+		"permission_id" : 26,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 16
+	},
+	{
+		"permission_id" : 27,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 16
+	},
+	{
+		"permission_id" : 28,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 16
+	},
+	{
+		"permission_id" : 29,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 16
+	},
+	{
+		"permission_id" : 30,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 16
+	},
+	{
+		"permission_id" : 31,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 16
+	},
+	{
+		"permission_id" : 33,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 16
+	},
+	{
+		"permission_id" : 34,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 16
+	},
+	{
+		"permission_id" : 35,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 16
+	},
+	{
+		"permission_id" : 37,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 16
+	},
+	{
+		"permission_id" : 39,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 16
+	},
+	{
+		"permission_id" : 40,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 16
+	},
+	{
+		"permission_id" : 38,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 16
+	},
+	{
+		"permission_id" : 25,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 30
+	},
+	{
+		"permission_id" : 26,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 30
+	},
+	{
+		"permission_id" : 27,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 30
+	},
+	{
+		"permission_id" : 28,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 30
+	},
+	{
+		"permission_id" : 40,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 30
+	},
+	{
+		"permission_id" : 40,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 42
+	},
+	{
+		"permission_id" : 40,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 41
+	},
+	{
+		"permission_id" : 40,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 43
+	},
+	{
+		"permission_id" : 40,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 13
+	},
+	{
+		"permission_id" : 39,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 61
+	},
+	{
+		"permission_id" : 37,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 1
+	},
+	{
+		"permission_id" : 1,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 28
+	},
+	{
+		"permission_id" : 2,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 28
+	},
+	{
+		"permission_id" : 3,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 28
+	},
+	{
+		"permission_id" : 4,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 28
+	},
+	{
+		"permission_id" : 5,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 28
+	},
+	{
+		"permission_id" : 6,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 28
+	},
+	{
+		"permission_id" : 7,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 28
+	},
+	{
+		"permission_id" : 8,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 28
+	},
+	{
+		"permission_id" : 9,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 28
+	},
+	{
+		"permission_id" : 10,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 28
+	},
+	{
+		"permission_id" : 11,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 28
+	},
+	{
+		"permission_id" : 12,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 28
+	},
+	{
+		"permission_id" : 13,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 28
+	},
+	{
+		"permission_id" : 14,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 28
+	},
+	{
+		"permission_id" : 15,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 28
+	},
+	{
+		"permission_id" : 17,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 28
+	},
+	{
+		"permission_id" : 18,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 28
+	},
+	{
+		"permission_id" : 19,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 28
+	},
+	{
+		"permission_id" : 21,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 28
+	},
+	{
+		"permission_id" : 22,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 28
+	},
+	{
+		"permission_id" : 23,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 28
+	},
+	{
+		"permission_id" : 25,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 28
+	},
+	{
+		"permission_id" : 26,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 28
+	},
+	{
+		"permission_id" : 27,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 28
+	},
+	{
+		"permission_id" : 29,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 28
+	},
+	{
+		"permission_id" : 30,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 28
+	},
+	{
+		"permission_id" : 31,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 28
+	},
+	{
+		"permission_id" : 33,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 28
+	},
+	{
+		"permission_id" : 34,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 28
+	},
+	{
+		"permission_id" : 35,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 28
+	},
+	{
+		"permission_id" : 37,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 28
+	},
+	{
+		"permission_id" : 38,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 28
+	},
+	{
+		"permission_id" : 41,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 28
+	},
+	{
+		"permission_id" : 42,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 28
+	},
+	{
+		"permission_id" : 43,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 28
+	},
+	{
+		"permission_id" : 44,
+		"model_type" : "Mnemosine\\User",
+		"model_id" : 28
+	}
+]}
