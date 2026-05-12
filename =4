@@ -1,0 +1,2 @@
+Requirement already satisfied: django in ./venv/lib/python3.10/site-packages (2.1.4)
+Requirement already satisfied: pytz in ./venv/lib/python3.10/site-packages (from django) (2024.1)

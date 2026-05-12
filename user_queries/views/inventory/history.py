@@ -2,6 +2,7 @@ import json
 from datetime import datetime
 
 from bson import ObjectId
+from bson.decimal128 import Decimal128
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -58,6 +59,12 @@ def get_user_info(user_map, raw_user_id):
 
 
 def normalize_simple_value(value):
+    if isinstance(value, Decimal128):
+        return str(value.to_decimal())
+    if isinstance(value, ObjectId):
+        return str(value)
+    if isinstance(value, datetime):
+        return value.isoformat()
     if isinstance(value, dict):
         if "file_name" in value:
             return value.get("file_name")
@@ -77,6 +84,183 @@ def normalize_simple_value(value):
     if isinstance(value, list):
         return ", ".join(str(normalize_simple_value(item)) for item in value)
     return value
+
+
+def normalize_structured_value(value):
+    if isinstance(value, dict):
+        if "oldValue" in value and "newValue" in value:
+            return normalize_simple_value(value.get("newValue"))
+        return ", ".join(
+            f"{humanize_field_name(key)}: {normalize_simple_value(item)}"
+            for key, item in value.items()
+        )
+    if isinstance(value, list):
+        return ", ".join(str(normalize_simple_value(item)) for item in value)
+    return normalize_simple_value(value)
+
+
+def normalize_piece_snapshot(snapshot):
+    if not snapshot:
+        return []
+
+    excluded_fields = {
+        "_id",
+        "created_at",
+        "updated_at",
+        "created_by",
+        "updated_by",
+        "deleted_at",
+        "deleted_by",
+        "approved_rejected_by",
+        "approved_rejected",
+        "piece_id",
+    }
+
+    return [
+        {
+            "field": field_name,
+            "label": humanize_field_name(field_name),
+            "value": normalize_structured_value(value),
+        }
+        for field_name, value in snapshot.items()
+        if field_name not in excluded_fields
+    ]
+
+
+def enrich_piece_snapshot_from_old_values(entry, normalized_snapshot):
+    snapshot_by_field = {item["field"]: item for item in normalized_snapshot}
+
+    for field_name, value in entry.items():
+        if not isinstance(value, dict):
+            continue
+        if "oldValue" not in value:
+            continue
+
+        normalized_old_value = normalize_simple_value(value.get("oldValue"))
+        existing_item = snapshot_by_field.get(field_name)
+
+        if existing_item:
+            existing_value = existing_item.get("value")
+            if existing_value not in {None, "", "N/D"}:
+                continue
+            existing_item["value"] = normalized_old_value
+            continue
+
+        new_item = {
+            "field": field_name,
+            "label": humanize_field_name(field_name),
+            "value": normalized_old_value,
+        }
+        normalized_snapshot.append(new_item)
+        snapshot_by_field[field_name] = new_item
+
+    return normalized_snapshot
+
+
+def normalize_media_file_item(item, fallback_label):
+    return {
+        "title": item.get("name")
+        or item.get("title")
+        or item.get("file_name")
+        or fallback_label,
+        "file_name": item.get("file_name"),
+        "description": item.get("description"),
+        "photographer": item.get("photographer"),
+        "photographed_at": item.get("photographed_at"),
+        "size": item.get("size"),
+        "mime_type": item.get("mime_type"),
+        "old_file_name": item.get("old_file_name"),
+        "new_file_name": item.get("new_file_name"),
+        "old_size": item.get("old_size"),
+        "new_size": item.get("new_size"),
+        "old_mime_type": item.get("old_mime_type"),
+        "new_mime_type": item.get("new_mime_type"),
+    }
+
+
+def normalize_info_change_entries(payload, collection_name, mongo):
+    if not payload:
+        return []
+
+    items = payload.values() if isinstance(payload, dict) else payload
+    normalized_items = []
+
+    for item in items:
+        file_name = item.get("file_name")
+        if not file_name and item.get("_id"):
+            parsed_id = parse_object_id(item.get("_id"))
+            if parsed_id:
+                collection_item = mongo.connect(collection_name).find_one(
+                    {"_id": parsed_id},
+                    {"file_name": 1, "name": 1, "title": 1},
+                )
+                if collection_item:
+                    file_name = (
+                        collection_item.get("file_name")
+                        or collection_item.get("name")
+                        or collection_item.get("title")
+                    )
+
+        fields = []
+        for field_name, field_value in item.items():
+            if field_name in {"_id", "file_name"}:
+                continue
+            if isinstance(field_value, dict) and (
+                "oldValue" in field_value or "newValue" in field_value
+            ):
+                fields.append(
+                    {
+                        "field": field_name,
+                        "label": humanize_field_name(field_name),
+                        "old_value": normalize_simple_value(field_value.get("oldValue")),
+                        "new_value": normalize_simple_value(field_value.get("newValue")),
+                    }
+                )
+            else:
+                fields.append(
+                    {
+                        "field": field_name,
+                        "label": humanize_field_name(field_name),
+                        "old_value": None,
+                        "new_value": normalize_simple_value(field_value),
+                    }
+                )
+
+        normalized_items.append(
+            {
+                "file_name": file_name or "Archivo relacionado",
+                "fields": fields,
+            }
+        )
+
+    return normalized_items
+
+
+def build_media_sections(entry, mongo):
+    return {
+        "new_pics": [
+            normalize_media_file_item(item, "Fotografia nueva")
+            for item in (entry.get("new_pics") or [])
+        ],
+        "changed_pics": [
+            normalize_media_file_item(item, "Fotografia reemplazada")
+            for item in (entry.get("changed_pics") or [])
+        ],
+        "changed_pics_info": normalize_info_change_entries(
+            entry.get("changed_pics_info"), "photographs", mongo
+        ),
+        "new_docs": [
+            normalize_media_file_item(item, "Documento nuevo")
+            for item in (entry.get("new_docs") or [])
+        ],
+        "changed_docs": [
+            normalize_media_file_item(item, "Documento reemplazado")
+            for item in (entry.get("changed_docs") or [])
+        ],
+        "changed_docs_info": normalize_info_change_entries(
+            entry.get("changed_docs_info"), "documents", mongo
+        ),
+    }
 
 
 def normalize_special_change(field_name, payload):
@@ -116,7 +300,14 @@ def normalize_special_change(field_name, payload):
     if field_name in {"changed_pics_info", "changed_docs_info"}:
         names = []
         for _, item in (payload or {}).items():
-            names.append(item.get("title") or item.get("description") or item.get("name") or "Metadatos actualizados")
+            names.append(
+                normalize_simple_value(
+                    item.get("title")
+                    or item.get("description")
+                    or item.get("name")
+                    or "Metadatos actualizados"
+                )
+            )
         return {
             "field": field_name,
             "label": humanize_field_name(field_name),
@@ -172,7 +363,7 @@ def normalize_change_item(field_name, payload):
 
 def get_entry_status(entry):
     approved_value = entry.get("approved_rejected")
-    if approved_value is True:
+    if approved_value is True or approved_value == "approved":
         return "Autorizado"
     if approved_value == "rejected" or approved_value is False:
         return "Rechazado"
@@ -185,7 +376,11 @@ def get_entry_action_type(entry):
     return "Edicion"
 
 
-def normalize_history_entry(entry, user_map):
+def build_reconstructed_previous_state(entry, current_state):
+    if not current_state or entry.get("new_piece"):
+        return None
+
+    previous_state = dict(current_state)
     excluded_fields = {
         "_id",
         "created_at",
@@ -198,6 +393,47 @@ def normalize_history_entry(entry, user_map):
         "changed_by_module_id",
         "deleted_at",
         "deleted_by",
+        "piece_before_changes",
+        "new_pics",
+        "new_docs",
+        "changed_pics",
+        "changed_docs",
+        "changed_pics_info",
+        "changed_docs_info",
+    }
+
+    for field_name, value in entry.items():
+        if field_name in excluded_fields:
+            continue
+        if not isinstance(value, dict):
+            continue
+        if "oldValue" not in value:
+            continue
+        previous_state[field_name] = value.get("oldValue")
+
+    return previous_state
+
+
+def normalize_history_entry(entry, user_map, mongo, reconstructed_snapshot=None):
+    excluded_fields = {
+        "_id",
+        "created_at",
+        "updated_at",
+        "created_by",
+        "updated_by",
+        "piece_id",
+        "approved_rejected_by",
+        "approved_rejected",
+        "changed_by_module_id",
+        "deleted_at",
+        "deleted_by",
+        "piece_before_changes",
+        "new_pics",
+        "new_docs",
+        "changed_pics",
+        "changed_docs",
+        "changed_pics_info",
+        "changed_docs_info",
     }
 
     created_by = get_user_info(user_map, entry.get("created_by"))
@@ -221,6 +457,25 @@ def normalize_history_entry(entry, user_map):
                 continue
             changes.append(normalize_change_item(field_name, value))
 
+    piece_before_changes = entry.get("piece_before_changes") or []
+    snapshot = None
+    if isinstance(piece_before_changes, list) and piece_before_changes:
+        snapshot = piece_before_changes[-1]
+    elif isinstance(piece_before_changes, dict):
+        snapshot = piece_before_changes
+
+    if reconstructed_snapshot:
+        if snapshot is None:
+            snapshot = reconstructed_snapshot
+        else:
+            merged_snapshot = dict(reconstructed_snapshot)
+            merged_snapshot.update(snapshot)
+            snapshot = merged_snapshot
+
+    normalized_piece_before_changes = enrich_piece_snapshot_from_old_values(
+        entry, normalize_piece_snapshot(snapshot)
+    )
+
     return {
         "id": serialized_entry.get("_id"),
         "piece_id": serialized_entry.get("piece_id"),
@@ -231,6 +486,8 @@ def normalize_history_entry(entry, user_map):
         "created_by": created_by,
         "approved_rejected_by": approved_by,
         "changes": changes,
+        "piece_before_changes": normalized_piece_before_changes,
+        "media_changes": build_media_sections(entry, mongo),
         "raw_reference": {
             "new_piece": serialized_entry.get("new_piece"),
             "new_pics": serialized_entry.get("new_pics"),
@@ -256,10 +513,7 @@ class InventoryHistoryView(APIView):
             )
 
         mongo = Mongo()
-        piece = mongo.connect("pieces").find_one(
-            {"_id": parsed_piece_id},
-            {"_id": 1, "inventory_number": 1, "catalog_number": 1},
-        )
+        piece = mongo.connect("pieces").find_one({"_id": parsed_piece_id})
         if not piece:
             return Response(
                 {"error": "Pieza no encontrada"},
@@ -295,9 +549,22 @@ class InventoryHistoryView(APIView):
                     user_ids.append(approved_by)
 
         user_map = get_user_map(mongo, user_ids)
-        normalized_history = [
-            normalize_history_entry(entry, user_map) for entry in history_entries
-        ]
+        rolling_piece_state = dict(piece)
+        normalized_history = []
+
+        for entry in history_entries:
+            reconstructed_snapshot = build_reconstructed_previous_state(
+                entry, rolling_piece_state
+            )
+            normalized_history.append(
+                normalize_history_entry(
+                    entry, user_map, mongo, reconstructed_snapshot
+                )
+            )
+
+            if get_entry_status(entry) == "Autorizado" and not entry.get("new_piece"):
+                if reconstructed_snapshot is not None:
+                    rolling_piece_state = reconstructed_snapshot
 
         return Response(
             {
