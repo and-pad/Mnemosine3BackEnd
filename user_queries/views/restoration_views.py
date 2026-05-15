@@ -52,7 +52,29 @@ class RestorationEditSelect(APIView):
     permission_classes = [IsAuthenticated]
     authentication_classes = [CustomJWTAuthentication]
 
+    def get_request_permissions(self, request):
+        permission = Permission()
+        return permission.get_permission(request.user)
+
+    def can_access_records(self, request):
+        permissions = self.get_request_permissions(request)
+        return any(
+            permission in permissions
+            for permission in [
+                "ver_restauracion",
+                "agregar_restauracion",
+                "editar_restauracion",
+                "eliminar_restauracion",
+            ]
+        )
+
     def get(self, request, _id):
+        if not self.can_access_records(request):
+            return Response(
+                "No tienes permiso para acceder al historial de restauraciones",
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         mongo = Mongo()
 
         restorations_cursor = mongo.connect("restorations").aggregate(
@@ -71,7 +93,17 @@ class RestorationEdit(APIView):
     permission_classes = [IsAuthenticated]
     authentication_classes = [CustomJWTAuthentication]
 
+    def get_request_permissions(self, request):
+        permission = Permission()
+        return permission.get_permission(request.user)
+
     def get(self, request, _id, restoration_id):
+        if "editar_restauracion" not in self.get_request_permissions(request):
+            return Response(
+                "No tienes permiso para editar restauraciones",
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         mongo = Mongo()
 
         restoration = (
@@ -133,6 +165,9 @@ class RestorationEdit(APIView):
     def patch(self, request, _id, restoration_id):
         mongo = Mongo()
         restoration = self.patch_request_validation(request, _id, restoration_id, mongo)
+        if isinstance(restoration, Response):
+            return restoration
+
         (changes,
         pics_new,
         changed_pics,
@@ -351,8 +386,8 @@ class RestorationEdit(APIView):
 
         if "editar_restauracion" not in perm:
             return Response(
-                "You have not permission to approve",
-                status=status.HTTP_401_UNAUTHORIZED,
+                "No tienes permiso para editar restauraciones",
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         if not self.get_module_id("restoration", mongo):

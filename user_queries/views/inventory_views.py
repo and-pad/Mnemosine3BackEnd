@@ -42,7 +42,17 @@ class InventoryNew(APIView):
     permission_classes = [IsAuthenticated]
     authentication_classes = [CustomJWTAuthentication]
 
+    def get_request_permissions(self, request):
+        permissions = Permission()
+        return permissions.get_permission(request.user)
+
+    def deny_permission(self, message):
+        return Response(message, status=status.HTTP_400_BAD_REQUEST)
+
     def get(self, request):
+        if "agregar_inventario" not in self.get_request_permissions(request):
+            return self.deny_permission("No tienes permiso para agregar inventario")
+
         mongo = Mongo()
         try:
             response = process_get(mongo)
@@ -71,6 +81,8 @@ class InventoryNew(APIView):
         files[new_doc_{x}], que son los documentos nuevos
 
         """
+        if "agregar_inventario" not in self.get_request_permissions(request):
+            return self.deny_permission("No tienes permiso para agregar inventario")
 
         # Initialize the Mongo connection
         mongo = Mongo()
@@ -94,12 +106,8 @@ class InventoryNew(APIView):
 
 
         """
-        permissions = Permission()
-        perm = permissions.get_permission(request.user)
-        # Ya debe estar filtrado esto en el front end pero por refuerzo de seguridad
-        # le buscamos en la base de datos
-        if "agregar_inventario" not in perm:
-            return Response("Permission denied", status=status.HTTP_403_FORBIDDEN)
+        if "autorizar_colecciones" not in self.get_request_permissions(request):
+            return self.deny_permission("No tienes permiso para autorizar cambios de inventario")
 
         isapproved = request.data.get("isApproved")
         mongo = Mongo()
@@ -177,6 +185,10 @@ class InventoryPending(APIView):
     permission_classes = [IsAuthenticated]
     authentication_classes = [CustomJWTAuthentication]
 
+    def get_request_permissions(self, request):
+        permissions = Permission()
+        return permissions.get_permission(request.user)
+
     def _serialize(self, document):
         return json.loads(json.dumps(document, default=str))
 
@@ -244,6 +256,12 @@ class InventoryPending(APIView):
         return enriched
 
     def get(self, request):
+        if "autorizar_colecciones" not in self.get_request_permissions(request):
+            return Response(
+                "No tienes permiso para ver pendientes de inventario",
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         mongo = Mongo()
         try:
             pending_items = list(

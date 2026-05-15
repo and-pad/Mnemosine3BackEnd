@@ -57,6 +57,19 @@ class ResearchEdit(APIView):
         "description_inventory",
     ]
 
+    def get_request_permissions(self, request):
+        permissions = Permission()
+        return permissions.get_permission(request.user)
+
+    def can_access_existing_research(self, request_permissions):
+        return "editar_investigacion" in request_permissions
+
+    def can_access_new_research(self, request_permissions):
+        return (
+            "agregar_investigacion" in request_permissions
+            or "editar_investigacion" in request_permissions
+        )
+
     
 
     def get_genders(self, mongo):
@@ -90,6 +103,27 @@ class ResearchEdit(APIView):
         research = list(
             mongo.connect("researchs").aggregate(research_edit(module_id, _id))
         )
+        request_permissions = self.get_request_permissions(request)
+
+        if research:
+            if not self.can_access_existing_research(request_permissions):
+                return Response(
+                    {
+                        "ok": False,
+                        "message": "No tienes permiso para editar investigaciones",
+                        "detail": "No tienes permiso para editar investigaciones",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        elif not self.can_access_new_research(request_permissions):
+            return Response(
+                {
+                    "ok": False,
+                    "message": "No tienes permiso para crear investigaciones",
+                    "detail": "No tienes permiso para crear investigaciones",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         # print("research", research)
 
         cursor_change_json = {}
@@ -211,21 +245,6 @@ class ResearchEdit(APIView):
         return json.loads(json.dumps(data, default=str))
         
     def patch_request_validation(self, request, _id, mongo):
-        permissions = Permission()
-        perm = permissions.get_permission(request.user)
-        # Ya debe estar filtrado esto en el front end pero por refuerzo de seguridad
-        # le buscamos en la base de datos
-        if "editar_investigacion" not in perm:
-            return Response(
-               {
-                 "ok": False,
-                 "message": "No tienes permiso para editar investigaciones",
-                 "detail": "No tienes permiso para editar investigaciones",
-                
-                },
-                status=status.HTTP_401_UNAUTHORIZED,
-            )
-                
         if not get_module_id("research", mongo):
             return Response(
                 {"ok": False,
@@ -234,10 +253,32 @@ class ResearchEdit(APIView):
             )
 
         # Buscar investigación existente
-        
-        return mongo.connect("researchs").find_one(
+        research = mongo.connect("researchs").find_one(
             {"piece_id": ObjectId(_id), "deleted_at": None}
         )
+        request_permissions = self.get_request_permissions(request)
+
+        if research:
+            if not self.can_access_existing_research(request_permissions):
+                return Response(
+                    {
+                        "ok": False,
+                        "message": "No tienes permiso para editar investigaciones",
+                        "detail": "No tienes permiso para editar investigaciones",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        elif not self.can_access_new_research(request_permissions):
+            return Response(
+                {
+                    "ok": False,
+                    "message": "No tienes permiso para crear investigaciones",
+                    "detail": "No tienes permiso para crear investigaciones",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return research
     
     def validate_research(self, research, request, _id, mongo, session):
         is_new_research = False
@@ -267,6 +308,8 @@ class ResearchEdit(APIView):
                 with session.start_transaction():
         
                     research = self.patch_request_validation(request, _id, mongo)
+                    if isinstance(research, Response):
+                        return research
 
                     is_new_research, research = self.validate_research(research, request, _id, mongo, session)        
                     

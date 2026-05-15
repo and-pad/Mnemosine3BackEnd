@@ -34,6 +34,13 @@ class InventoryEdit(APIView):
     def get_inventory_module(self, mongo):
         return mongo.connect("modules").find_one({"name": "inventory"})
 
+    def get_request_permissions(self, request):
+        permissions = Permission()
+        return permissions.get_permission(request.user)
+
+    def deny_permission(self, message):
+        return Response(message, status=status.HTTP_400_BAD_REQUEST)
+
     def get_collection_json(self, mongo, collection_name, query=None, sort_field=None):
         """Obtiene documentos de una colección y los convierte a JSON."""
         collection = mongo.connect(collection_name)
@@ -52,6 +59,9 @@ class InventoryEdit(APIView):
         return []
 
     def get(self, request, _id):
+        perm = self.get_request_permissions(request)
+        if "editar_inventario" not in perm:
+            return self.deny_permission("No tienes permiso para editar inventario")
 
         mongo = Mongo()
 
@@ -106,17 +116,6 @@ class InventoryEdit(APIView):
             # Necesito ver en los permisos ya esta la funcion si tiene el permiso necesario para acreditar
             # si puede aceptar los cambios, si no tiene ese permiso entonces debe poner un mensaje de que esta siendo editado y no se puede editar
             # hasta que se apruebe
-            permissions = Permission()
-            perm = permissions.get_permission(request.user)
-            # Ya debe estar filtrado esto en el front end pero por refuerzo de seguridad
-            # le buscamos en la base de datos
-
-            if "editar_inventario" not in perm:
-                return Response(
-                    "You have not permission to approve",
-                    status=status.HTTP_401_UNAUTHORIZED,
-                )
-
             exclusions = {
                 "created_at",
                 "updated_at",
@@ -315,6 +314,10 @@ class InventoryEdit(APIView):
         files[changed_doc_{x}], que son los documentos con cambios
 
         """
+        perm = self.get_request_permissions(request)
+        if "editar_inventario" not in perm:
+            return self.deny_permission("No tienes permiso para editar inventario")
+
         # Get the user ID from the request
         user_id = request.user.id
 
@@ -481,6 +484,9 @@ class InventoryEdit(APIView):
         return module["_id"]
 
     def put(self, request, _id):
+        perm = self.get_request_permissions(request)
+        if "autorizar_colecciones" not in perm:
+            return self.deny_permission("No tienes permiso para autorizar cambios de inventario")
 
         user_id = request.user.id
 

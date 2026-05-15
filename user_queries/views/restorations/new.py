@@ -22,7 +22,19 @@ class RestorationNew(APIView):
     authentication_classes = [CustomJWTAuthentication]
     permission_classes = [IsAuthenticated]
 
+    def get_request_permissions(self, request):
+        from authentication.views import Permission
+
+        permissions = Permission()
+        return permissions.get_permission(request.user)
+
+    def deny_permission(self, message):
+        return Response(message, status=status.HTTP_400_BAD_REQUEST)
+
     def get(self, request, _id):
+        if "agregar_restauracion" not in self.get_request_permissions(request):
+            return self.deny_permission("No tienes permiso para agregar restauraciones")
+
         mongo = Mongo()
 
 
@@ -37,10 +49,15 @@ class RestorationNew(APIView):
         return Response({"catalog_responsible": catalog_responsible}, status=status.HTTP_200_OK)
     
     def post(self, request, _id):
+        if "agregar_restauracion" not in self.get_request_permissions(request):
+            return self.deny_permission("No tienes permiso para agregar restauraciones")
 
         mongo = Mongo()       
         
-        self.validate_request(request, _id, mongo)
+        validation_response = self.validate_request(request, _id, mongo)
+        if isinstance(validation_response, Response):
+            return validation_response
+
         (data, pics_new, new_docs)= self.load_request(request, _id, mongo)
         
         with mongo.start_session() as session:
