@@ -17,6 +17,13 @@ from user_queries.views.movements.base import (
 
 from .constants import REPORT_COLUMNS
 
+REPORT_PERMISSIONS = {
+    "view": "ver_reportes",
+    "create": "agregar_reportes",
+    "edit": "editar_reportes",
+    "delete": "eliminar_reportes",
+}
+
 
 def serialize_option(document, label_field="name"):
     if not document:
@@ -44,9 +51,21 @@ def get_report_columns_catalog():
 def split_csv(value):
     if not value:
         return []
+
     if isinstance(value, list):
-        return [str(item).strip() for item in value if str(item).strip()]
-    return [item.strip() for item in str(value).split(",") if item.strip()]
+        raw_items = [str(item).strip() for item in value if str(item).strip()]
+    else:
+        raw_items = [item.strip() for item in str(value).split(",") if item.strip()]
+
+    unique_items = []
+    seen = set()
+    for item in raw_items:
+        if item in seen:
+            continue
+        seen.add(item)
+        unique_items.append(item)
+
+    return unique_items
 
 
 def build_columns_csv(payload):

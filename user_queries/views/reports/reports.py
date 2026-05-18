@@ -11,6 +11,7 @@ from user_queries.views.tools import AuditManager
 
 from .constants import REPORT_COLUMNS
 from .helpers import (
+    REPORT_PERMISSIONS,
     build_piece_query,
     build_report_payload,
     ensure_piece_search_collections,
@@ -60,6 +61,18 @@ def build_rendered_report(mongo, report, selected_piece_ids=None):
 
 class ReportsView(BaseMovementAPIView):
     def get(self, request):
+        if not self.has_any_permission(
+            request,
+            [
+                REPORT_PERMISSIONS["view"],
+                REPORT_PERMISSIONS["edit"],
+                REPORT_PERMISSIONS["delete"],
+            ],
+        ):
+            return self.deny_permission(
+                "No tienes permisos para consultar el listado de reportes."
+            )
+
         mongo = self.get_mongo()
         reports = list(mongo.connect("reports").find({"deleted_at": None}).sort("name", 1))
         users_map = get_reports_users_map(mongo)
@@ -70,6 +83,9 @@ class ReportsView(BaseMovementAPIView):
         )
 
     def post(self, request):
+        if not self.has_permission(request, REPORT_PERMISSIONS["create"]):
+            return self.deny_permission("No tienes permisos para crear reportes.")
+
         mongo = self.get_mongo()
         errors = validate_report_payload(request.data)
 
@@ -99,12 +115,20 @@ class ReportsView(BaseMovementAPIView):
 
 class ReportsMetaView(BaseMovementAPIView):
     def get(self, request):
+        if not self.has_permission(request, REPORT_PERMISSIONS["create"]):
+            return self.deny_permission(
+                "No tienes permisos para consultar el formulario de reportes."
+            )
+
         mongo = self.get_mongo()
         return Response(get_reports_catalogs(mongo), status=status.HTTP_200_OK)
 
 
 class ReportDetailView(BaseMovementAPIView):
     def get(self, request, id):
+        if not self.has_permission(request, REPORT_PERMISSIONS["edit"]):
+            return self.deny_permission("No tienes permisos para editar reportes.")
+
         mongo = self.get_mongo()
         report = get_report_document(mongo, id)
 
@@ -120,6 +144,9 @@ class ReportDetailView(BaseMovementAPIView):
         return Response(response_data, status=status.HTTP_200_OK)
 
     def put(self, request, id):
+        if not self.has_permission(request, REPORT_PERMISSIONS["edit"]):
+            return self.deny_permission("No tienes permisos para editar reportes.")
+
         mongo = self.get_mongo()
         report = get_report_document(mongo, id)
 
@@ -162,6 +189,9 @@ class ReportDetailView(BaseMovementAPIView):
         )
 
     def delete(self, request, id):
+        if not self.has_permission(request, REPORT_PERMISSIONS["delete"]):
+            return self.deny_permission("No tienes permisos para eliminar reportes.")
+
         mongo = self.get_mongo()
         report = get_report_document(mongo, id)
 
@@ -188,6 +218,17 @@ class ReportDetailView(BaseMovementAPIView):
 
 class ReportPiecesView(BaseMovementAPIView):
     def get(self, request):
+        if not self.has_any_permission(
+            request,
+            [
+                REPORT_PERMISSIONS["create"],
+                REPORT_PERMISSIONS["edit"],
+            ],
+        ):
+            return self.deny_permission(
+                "No tienes permisos para consultar piezas para reportes."
+            )
+
         mongo = self.get_mongo()
         ensure_piece_search_collections(mongo)
 
@@ -230,6 +271,9 @@ class ReportPiecesView(BaseMovementAPIView):
 
 class ReportPreviewView(BaseMovementAPIView):
     def get(self, request, id):
+        if not self.has_permission(request, REPORT_PERMISSIONS["view"]):
+            return self.deny_permission("No tienes permisos para ver reportes.")
+
         mongo = self.get_mongo()
         report = get_report_document(mongo, id)
 
@@ -261,6 +305,11 @@ class ReportPreviewView(BaseMovementAPIView):
 
 class ReportPdfView(BaseMovementAPIView):
     def get(self, request, id):
+        if not self.has_permission(request, REPORT_PERMISSIONS["view"]):
+            return self.deny_permission(
+                "No tienes permisos para generar el PDF del reporte."
+            )
+
         mongo = self.get_mongo()
         report = get_report_document(mongo, id)
 

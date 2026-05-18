@@ -10,6 +10,7 @@ from user_queries.views.tools import AuditManager
 
 from .base import (
     BaseMovementAPIView,
+    MOVEMENT_PERMISSIONS,
     escape_search,
     parse_object_id,
     serialize_mongo,
@@ -98,6 +99,19 @@ def validate_venue_payload(payload):
 
 class VenuesView(BaseMovementAPIView):
     def get(self, request):
+        if not self.has_any_permission(
+            request,
+            [
+                MOVEMENT_PERMISSIONS["view"],
+                MOVEMENT_PERMISSIONS["create"],
+                MOVEMENT_PERMISSIONS["edit"],
+                MOVEMENT_PERMISSIONS["delete"],
+            ],
+        ):
+            return self.deny_permission(
+                "No tienes permisos para consultar sedes de movimientos."
+            )
+
         mongo = self.get_mongo()
         search = (request.query_params.get("search") or "").strip()
 
@@ -168,6 +182,9 @@ class VenuesView(BaseMovementAPIView):
         )
 
     def post(self, request):
+        if not self.has_permission(request, MOVEMENT_PERMISSIONS["create"]):
+            return self.deny_permission("No tienes permisos para crear sedes.")
+
         mongo = self.get_mongo()
         venue_data = build_venue_payload(request.data)
         errors = validate_venue_payload(venue_data)
@@ -206,6 +223,19 @@ class VenueDetailView(BaseMovementAPIView):
         )
 
     def get(self, request, id):
+        if not self.has_any_permission(
+            request,
+            [
+                MOVEMENT_PERMISSIONS["view"],
+                MOVEMENT_PERMISSIONS["create"],
+                MOVEMENT_PERMISSIONS["edit"],
+                MOVEMENT_PERMISSIONS["delete"],
+            ],
+        ):
+            return self.deny_permission(
+                "No tienes permisos para consultar sedes de movimientos."
+            )
+
         mongo = self.get_mongo()
         venue = self.get_venue(mongo, id)
 
@@ -227,6 +257,9 @@ class VenueDetailView(BaseMovementAPIView):
         )
 
     def put(self, request, id):
+        if not self.has_permission(request, MOVEMENT_PERMISSIONS["edit"]):
+            return self.deny_permission("No tienes permisos para editar sedes.")
+
         mongo = self.get_mongo()
         venue = self.get_venue(mongo, id)
 
@@ -271,6 +304,9 @@ class VenueDetailView(BaseMovementAPIView):
         )
 
     def delete(self, request, id):
+        if not self.has_permission(request, MOVEMENT_PERMISSIONS["delete"]):
+            return self.deny_permission("No tienes permisos para eliminar sedes.")
+
         mongo = self.get_mongo()
         venue = self.get_venue(mongo, id)
 

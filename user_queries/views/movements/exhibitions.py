@@ -9,6 +9,7 @@ from user_queries.views.tools import AuditManager
 
 from .base import (
     BaseMovementAPIView,
+    MOVEMENT_PERMISSIONS,
     escape_search,
     parse_object_id,
     serialize_mongo,
@@ -92,6 +93,19 @@ def validate_exhibition_payload(payload):
 
 class ExhibitionsView(BaseMovementAPIView):
     def get(self, request):
+        if not self.has_any_permission(
+            request,
+            [
+                MOVEMENT_PERMISSIONS["view"],
+                MOVEMENT_PERMISSIONS["create"],
+                MOVEMENT_PERMISSIONS["edit"],
+                MOVEMENT_PERMISSIONS["delete"],
+            ],
+        ):
+            return self.deny_permission(
+                "No tienes permisos para consultar exposiciones de movimientos."
+            )
+
         mongo = self.get_mongo()
         search = (request.query_params.get("search") or "").strip()
 
@@ -167,6 +181,9 @@ class ExhibitionsView(BaseMovementAPIView):
         )
 
     def post(self, request):
+        if not self.has_permission(request, MOVEMENT_PERMISSIONS["create"]):
+            return self.deny_permission("No tienes permisos para crear exposiciones.")
+
         mongo = self.get_mongo()
         exhibition_data = build_exhibition_payload(request.data)
         errors = validate_exhibition_payload(exhibition_data)
@@ -207,6 +224,19 @@ class ExhibitionDetailView(BaseMovementAPIView):
         )
 
     def get(self, request, id):
+        if not self.has_any_permission(
+            request,
+            [
+                MOVEMENT_PERMISSIONS["view"],
+                MOVEMENT_PERMISSIONS["create"],
+                MOVEMENT_PERMISSIONS["edit"],
+                MOVEMENT_PERMISSIONS["delete"],
+            ],
+        ):
+            return self.deny_permission(
+                "No tienes permisos para consultar exposiciones de movimientos."
+            )
+
         mongo = self.get_mongo()
         exhibition = self.get_exhibition(mongo, id)
 
@@ -228,6 +258,9 @@ class ExhibitionDetailView(BaseMovementAPIView):
         )
 
     def put(self, request, id):
+        if not self.has_permission(request, MOVEMENT_PERMISSIONS["edit"]):
+            return self.deny_permission("No tienes permisos para editar exposiciones.")
+
         mongo = self.get_mongo()
         exhibition = self.get_exhibition(mongo, id)
 
@@ -274,6 +307,11 @@ class ExhibitionDetailView(BaseMovementAPIView):
         )
 
     def delete(self, request, id):
+        if not self.has_permission(request, MOVEMENT_PERMISSIONS["delete"]):
+            return self.deny_permission(
+                "No tienes permisos para eliminar exposiciones."
+            )
+
         mongo = self.get_mongo()
         exhibition = self.get_exhibition(mongo, id)
 

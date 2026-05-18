@@ -9,6 +9,7 @@ from user_queries.views.tools import AuditManager
 
 from .base import (
     BaseMovementAPIView,
+    MOVEMENT_PERMISSIONS,
     escape_search,
     parse_object_id,
     serialize_mongo,
@@ -101,6 +102,19 @@ def validate_contact_payload(payload):
 
 class ContactsView(BaseMovementAPIView):
     def get(self, request):
+        if not self.has_any_permission(
+            request,
+            [
+                MOVEMENT_PERMISSIONS["view"],
+                MOVEMENT_PERMISSIONS["create"],
+                MOVEMENT_PERMISSIONS["edit"],
+                MOVEMENT_PERMISSIONS["delete"],
+            ],
+        ):
+            return self.deny_permission(
+                "No tienes permisos para consultar contactos de movimientos."
+            )
+
         mongo = self.get_mongo()
         search = (request.query_params.get("search") or "").strip()
 
@@ -151,6 +165,9 @@ class ContactsView(BaseMovementAPIView):
         )
 
     def post(self, request):
+        if not self.has_permission(request, MOVEMENT_PERMISSIONS["create"]):
+            return self.deny_permission("No tienes permisos para crear contactos.")
+
         mongo = self.get_mongo()
         contact_data = build_contact_payload(request.data)
         errors = validate_contact_payload(contact_data)
@@ -191,6 +208,19 @@ class ContactDetailView(BaseMovementAPIView):
         )
 
     def get(self, request, id):
+        if not self.has_any_permission(
+            request,
+            [
+                MOVEMENT_PERMISSIONS["view"],
+                MOVEMENT_PERMISSIONS["create"],
+                MOVEMENT_PERMISSIONS["edit"],
+                MOVEMENT_PERMISSIONS["delete"],
+            ],
+        ):
+            return self.deny_permission(
+                "No tienes permisos para consultar contactos de movimientos."
+            )
+
         mongo = self.get_mongo()
         contact = self.get_contact(mongo, id)
 
@@ -210,6 +240,9 @@ class ContactDetailView(BaseMovementAPIView):
         )
 
     def put(self, request, id):
+        if not self.has_permission(request, MOVEMENT_PERMISSIONS["edit"]):
+            return self.deny_permission("No tienes permisos para editar contactos.")
+
         mongo = self.get_mongo()
         contact = self.get_contact(mongo, id)
 
@@ -256,6 +289,9 @@ class ContactDetailView(BaseMovementAPIView):
         )
 
     def delete(self, request, id):
+        if not self.has_permission(request, MOVEMENT_PERMISSIONS["delete"]):
+            return self.deny_permission("No tienes permisos para eliminar contactos.")
+
         mongo = self.get_mongo()
         contact = self.get_contact(mongo, id)
 

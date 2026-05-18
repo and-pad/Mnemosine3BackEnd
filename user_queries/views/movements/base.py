@@ -6,11 +6,22 @@ import string
 
 from bson import Decimal128, ObjectId
 from django.conf import settings
+from rest_framework import status
+from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 
 from authentication.custom_jwt import CustomJWTAuthentication
+from authentication.views import Permission
 from user_queries.driver_database.mongo import Mongo
+
+MOVEMENT_PERMISSIONS = {
+    "view": "ver_movimientos",
+    "create": "agregar_movimientos",
+    "edit": "editar_movimientos",
+    "delete": "eliminar_movimientos",
+    "authorize": "autorizar_movimientos",
+}
 
 def bson_to_json_serializable(doc):
         """Convierte ObjectId, Decimal128 y datetime a tipos serializables."""
@@ -282,3 +293,24 @@ class BaseMovementAPIView(APIView):
 
     def get_mongo(self):
         return Mongo()
+
+    def get_request_permissions(self, request):
+        permissions = Permission()
+        return permissions.get_permission(request.user)
+
+    def has_permission(self, request, permission):
+        return permission in self.get_request_permissions(request)
+
+    def has_any_permission(self, request, permissions):
+        request_permissions = self.get_request_permissions(request)
+        return any(permission in request_permissions for permission in permissions)
+
+    def deny_permission(self, message="No tienes permisos para ejecutar esta acción."):
+        return Response(
+            {
+                "ok": False,
+                "message": message,
+                "detail": message,
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )

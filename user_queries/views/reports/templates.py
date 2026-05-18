@@ -6,7 +6,12 @@ from user_queries.shemas.template_reports_shema import TemplateReportsSchema
 from user_queries.views.movements.base import BaseMovementAPIView, parse_bool
 from user_queries.views.tools import AuditManager
 
-from .helpers import get_template_document, serialize_template, split_csv
+from .helpers import (
+    REPORT_PERMISSIONS,
+    get_template_document,
+    serialize_template,
+    split_csv,
+)
 
 
 def validate_template_payload(payload):
@@ -30,6 +35,17 @@ def build_template_payload(payload):
 
 class ReportTemplatesView(BaseMovementAPIView):
     def get(self, request):
+        if not self.has_any_permission(
+            request,
+            [
+                REPORT_PERMISSIONS["create"],
+                REPORT_PERMISSIONS["edit"],
+            ],
+        ):
+            return self.deny_permission(
+                "No tienes permisos para consultar plantillas de reportes."
+            )
+
         mongo = self.get_mongo()
         templates = list(
             mongo.connect("template_reports")
@@ -42,6 +58,17 @@ class ReportTemplatesView(BaseMovementAPIView):
         )
 
     def post(self, request):
+        if not self.has_any_permission(
+            request,
+            [
+                REPORT_PERMISSIONS["create"],
+                REPORT_PERMISSIONS["edit"],
+            ],
+        ):
+            return self.deny_permission(
+                "No tienes permisos para guardar plantillas de reportes."
+            )
+
         mongo = self.get_mongo()
         errors = validate_template_payload(request.data)
 
@@ -72,6 +99,17 @@ class ReportTemplatesView(BaseMovementAPIView):
 
 class ReportTemplateDetailView(BaseMovementAPIView):
     def delete(self, request, id):
+        if not self.has_any_permission(
+            request,
+            [
+                REPORT_PERMISSIONS["create"],
+                REPORT_PERMISSIONS["edit"],
+            ],
+        ):
+            return self.deny_permission(
+                "No tienes permisos para eliminar plantillas de reportes."
+            )
+
         mongo = self.get_mongo()
         template = get_template_document(mongo, id)
 

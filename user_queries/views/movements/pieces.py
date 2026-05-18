@@ -6,7 +6,13 @@ from user_queries.mongo_queries import PIECES_ALL
 from user_queries.views.tools import AuditManager
 from user_queries.shemas.movements_shema import MovementsSchema
 
-from .base import BaseMovementAPIView, get_movement_document, parse_object_id_list, serialize_mongo
+from .base import (
+    BaseMovementAPIView,
+    MOVEMENT_PERMISSIONS,
+    get_movement_document,
+    parse_object_id_list,
+    serialize_mongo,
+)
 
 
 def get_serialized_pieces(mongo):
@@ -26,6 +32,17 @@ def get_serialized_pieces(mongo):
 
 class MovementSelectPiecesView(BaseMovementAPIView):
     def get(self, request, id):
+        if not self.has_any_permission(
+            request,
+            [
+                MOVEMENT_PERMISSIONS["create"],
+                MOVEMENT_PERMISSIONS["edit"],
+            ],
+        ):
+            return self.deny_permission(
+                "No tienes permisos para consultar las piezas del movimiento."
+            )
+
         mongo = self.get_mongo()
         movement = get_movement_document(mongo, id)
 
@@ -46,6 +63,17 @@ class MovementSelectPiecesView(BaseMovementAPIView):
         )
 
     def post(self, request, id):
+        if not self.has_any_permission(
+            request,
+            [
+                MOVEMENT_PERMISSIONS["create"],
+                MOVEMENT_PERMISSIONS["edit"],
+            ],
+        ):
+            return self.deny_permission(
+                "No tienes permisos para actualizar las piezas del movimiento."
+            )
+
         mongo = self.get_mongo()
         movement = get_movement_document(mongo, id)
 

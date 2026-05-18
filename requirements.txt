@@ -25,6 +25,7 @@ docxtpl==0.18.0
 executing==2.2.0
 fastjsonschema==2.21.1
 fields==5.0.0
+gunicorn==26.0.0
 humanize==4.10.0
 idna==3.10
 ipython==8.12.3

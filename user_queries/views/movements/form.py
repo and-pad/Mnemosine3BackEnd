@@ -7,6 +7,7 @@ from user_queries.views.tools import AuditManager
 
 from .base import (
     BaseMovementAPIView,
+    MOVEMENT_PERMISSIONS,
     get_contacts_by_institutions,
     get_exhibitions_by_institutions,
     get_institutions_payload,
@@ -21,6 +22,17 @@ from .base import (
 
 class MovementContactsView(BaseMovementAPIView):
     def get(self, request, institution_ids):
+        if not self.has_any_permission(
+            request,
+            [
+                MOVEMENT_PERMISSIONS["create"],
+                MOVEMENT_PERMISSIONS["edit"],
+            ],
+        ):
+            return self.deny_permission(
+                "No tienes permisos para consultar contactos del movimiento."
+            )
+
         mongo = self.get_mongo()
         parsed_ids = parse_object_id_list(
             [value for value in institution_ids.split(",") if value]
@@ -33,6 +45,17 @@ class MovementContactsView(BaseMovementAPIView):
 
 class MovementExhibitionsView(BaseMovementAPIView):
     def get(self, request, institution_ids):
+        if not self.has_any_permission(
+            request,
+            [
+                MOVEMENT_PERMISSIONS["create"],
+                MOVEMENT_PERMISSIONS["edit"],
+            ],
+        ):
+            return self.deny_permission(
+                "No tienes permisos para consultar exposiciones del movimiento."
+            )
+
         mongo = self.get_mongo()
         parsed_ids = parse_object_id_list(
             [value for value in institution_ids.split(",") if value]
@@ -45,6 +68,17 @@ class MovementExhibitionsView(BaseMovementAPIView):
 
 class MovementVenuesView(BaseMovementAPIView):
     def get(self, request, institution_ids):
+        if not self.has_any_permission(
+            request,
+            [
+                MOVEMENT_PERMISSIONS["create"],
+                MOVEMENT_PERMISSIONS["edit"],
+            ],
+        ):
+            return self.deny_permission(
+                "No tienes permisos para consultar sedes del movimiento."
+            )
+
         mongo = self.get_mongo()
         parsed_ids = parse_object_id_list(
             [value for value in institution_ids.split(",") if value]
@@ -57,6 +91,17 @@ class MovementVenuesView(BaseMovementAPIView):
 
 class MovementsNew(BaseMovementAPIView):
     def get(self, request, id=None):
+        required_permission = (
+            MOVEMENT_PERMISSIONS["edit"] if id else MOVEMENT_PERMISSIONS["create"]
+        )
+        message = (
+            "No tienes permisos para editar movimientos."
+            if id
+            else "No tienes permisos para crear movimientos."
+        )
+        if not self.has_permission(request, required_permission):
+            return self.deny_permission(message)
+
         mongo = self.get_mongo()
         response_data = get_institutions_payload(mongo)
 
@@ -105,6 +150,9 @@ class MovementsNew(BaseMovementAPIView):
         return Response(response_data, status=status.HTTP_200_OK)
 
     def post(self, request, id=None):
+        if not self.has_permission(request, MOVEMENT_PERMISSIONS["create"]):
+            return self.deny_permission("No tienes permisos para crear movimientos.")
+
         mongo = self.get_mongo()
         movement_data = normalize_movement_payload(request.data, mongo)
         movement_data = AuditManager().add_timestampsInfo(
@@ -124,6 +172,9 @@ class MovementsNew(BaseMovementAPIView):
         )
 
     def put(self, request, id):
+        if not self.has_permission(request, MOVEMENT_PERMISSIONS["edit"]):
+            return self.deny_permission("No tienes permisos para editar movimientos.")
+
         mongo = self.get_mongo()
         existing_movement = get_movement_document(mongo, id)
 

@@ -15,6 +15,7 @@ import random
 
 from .base import (
     BaseMovementAPIView,
+    MOVEMENT_PERMISSIONS,
     get_movement_document,
     parse_date,
     serialize_mongo,
@@ -126,6 +127,19 @@ def serialize_prorogation(document, pieces):
 
 class MovementInfoView(BaseMovementAPIView):
     def get(self, request, id):
+        if not self.has_any_permission(
+            request,
+            [
+                MOVEMENT_PERMISSIONS["view"],
+                MOVEMENT_PERMISSIONS["edit"],
+                MOVEMENT_PERMISSIONS["delete"],
+                MOVEMENT_PERMISSIONS["authorize"],
+            ],
+        ):
+            return self.deny_permission(
+                "No tienes permisos para consultar la información del movimiento."
+            )
+
         mongo = self.get_mongo()
         movement = get_movement_document(mongo, id)
 
@@ -324,6 +338,11 @@ class MovementInfoView(BaseMovementAPIView):
 
 class MovementAuthorizeView(BaseMovementAPIView):
     def post(self, request, id):
+        if not self.has_permission(request, MOVEMENT_PERMISSIONS["authorize"]):
+            return self.deny_permission(
+                "No tienes permisos para autorizar movimientos."
+            )
+
         mongo = self.get_mongo()
         with mongo.start_session() as session:
             try:
@@ -404,6 +423,11 @@ class MovementAuthorizeView(BaseMovementAPIView):
 
 class MovementRejectView(BaseMovementAPIView):
     def post(self, request, id):
+        if not self.has_permission(request, MOVEMENT_PERMISSIONS["authorize"]):
+            return self.deny_permission(
+                "No tienes permisos para rechazar movimientos."
+            )
+
         mongo = self.get_mongo()
         movement = get_movement_document(mongo, id)
 
@@ -434,6 +458,11 @@ class MovementRejectView(BaseMovementAPIView):
 
 class MovementProrogationUpdateView(BaseMovementAPIView):
     def put(self, request, id):
+        if not self.has_permission(request, MOVEMENT_PERMISSIONS["authorize"]):
+            return self.deny_permission(
+                "No tienes permisos para actualizar prórrogas de movimientos."
+            )
+
         if not ObjectId.is_valid(id):
             return Response(
                 {"error": "Prórroga no encontrada"},

@@ -1,11 +1,24 @@
 from rest_framework import status
 from rest_framework.response import Response
 
-from .base import BaseMovementAPIView, escape_search
+from .base import BaseMovementAPIView, MOVEMENT_PERMISSIONS, escape_search
 
 
 class MovementsManage(BaseMovementAPIView):
     def get(self, request):
+        if not self.has_any_permission(
+            request,
+            [
+                MOVEMENT_PERMISSIONS["view"],
+                MOVEMENT_PERMISSIONS["edit"],
+                MOVEMENT_PERMISSIONS["delete"],
+                MOVEMENT_PERMISSIONS["authorize"],
+            ],
+        ):
+            return self.deny_permission(
+                "No tienes permisos para consultar el listado de movimientos."
+            )
+
         mongo = self.get_mongo()
 
         page = int(request.query_params.get("page", 1))

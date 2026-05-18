@@ -10,6 +10,7 @@ from user_queries.views.tools import AuditManager
 
 from .base import (
     BaseMovementAPIView,
+    MOVEMENT_PERMISSIONS,
     get_movement_document,
     get_next_movement_id,
     get_internal_institution,
@@ -40,6 +41,11 @@ def get_piece_label(piece):
 
 class MovementReturnPiecesView(BaseMovementAPIView):
     def get(self, request, id):
+        if not self.has_permission(request, MOVEMENT_PERMISSIONS["edit"]):
+            return self.deny_permission(
+                "No tienes permisos para consultar el regreso de piezas del movimiento."
+            )
+
         mongo = self.get_mongo()
         movement = get_movement_document(mongo, id)
 
@@ -92,6 +98,11 @@ class MovementReturnPiecesView(BaseMovementAPIView):
         )
 
     def post(self, request, id):
+        if not self.has_permission(request, MOVEMENT_PERMISSIONS["edit"]):
+            return self.deny_permission(
+                "No tienes permisos para registrar el regreso de piezas del movimiento."
+            )
+
         mongo = self.get_mongo()
         movement = get_movement_document(mongo, id)
 
