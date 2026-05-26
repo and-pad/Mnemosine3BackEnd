@@ -21,7 +21,6 @@ from .helpers import (
     get_report_pieces,
     get_reports_catalogs,
     get_reports_users_map,
-    split_csv,
     serialize_piece_row,
     serialize_report,
     validate_report_payload,
@@ -29,6 +28,18 @@ from .helpers import (
 from .rendering import build_piece_section, render_report_pdf
 
 logger = logging.getLogger(__name__)
+
+
+def get_selected_piece_ids_from_payload(data):
+    raw_value = data.get("selected_piece_ids") if hasattr(data, "get") else None
+
+    if isinstance(raw_value, list):
+        return [str(item).strip() for item in raw_value if str(item).strip()]
+
+    if isinstance(raw_value, str):
+        return split_csv(raw_value)
+
+    return []
 
 
 def build_rendered_report(mongo, report, selected_piece_ids=None):
@@ -270,10 +281,7 @@ class ReportPiecesView(BaseMovementAPIView):
 
 
 class ReportPreviewView(BaseMovementAPIView):
-    def get(self, request, id):
-        if not self.has_permission(request, REPORT_PERMISSIONS["view"]):
-            return self.deny_permission("No tienes permisos para ver reportes.")
-
+    def _build_preview_response(self, request, id, selected_piece_ids):
         mongo = self.get_mongo()
         report = get_report_document(mongo, id)
 
@@ -283,7 +291,6 @@ class ReportPreviewView(BaseMovementAPIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        selected_piece_ids = split_csv(request.query_params.get("selected_piece_ids"))
         serialized_report, selected_columns, rendered_pieces = build_rendered_report(
             mongo,
             report,
@@ -302,14 +309,16 @@ class ReportPreviewView(BaseMovementAPIView):
             status=status.HTTP_200_OK,
         )
 
+    def post(self, request, id):
+        if not self.has_permission(request, REPORT_PERMISSIONS["view"]):
+            return self.deny_permission("No tienes permisos para ver reportes.")
+
+        selected_piece_ids = get_selected_piece_ids_from_payload(request.data)
+        return self._build_preview_response(request, id, selected_piece_ids)
+
 
 class ReportPdfView(BaseMovementAPIView):
-    def get(self, request, id):
-        if not self.has_permission(request, REPORT_PERMISSIONS["view"]):
-            return self.deny_permission(
-                "No tienes permisos para generar el PDF del reporte."
-            )
-
+    def _build_pdf_response(self, request, id, selected_piece_ids):
         mongo = self.get_mongo()
         report = get_report_document(mongo, id)
 
@@ -319,7 +328,6 @@ class ReportPdfView(BaseMovementAPIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        selected_piece_ids = split_csv(request.query_params.get("selected_piece_ids"))
         serialized_report, _, rendered_pieces = build_rendered_report(
             mongo,
             report,
@@ -341,3 +349,12 @@ class ReportPdfView(BaseMovementAPIView):
         response = HttpResponse(pdf_bytes, content_type="application/pdf")
         response["Content-Disposition"] = f'attachment; filename="reporte_{id}.pdf"'
         return response
+
+    def post(self, request, id):
+        if not self.has_permission(request, REPORT_PERMISSIONS["view"]):
+            return self.deny_permission(
+                "No tienes permisos para generar el PDF del reporte."
+            )
+
+        selected_piece_ids = get_selected_piece_ids_from_payload(request.data)
+        return self._build_pdf_response(request, id, selected_piece_ids)
