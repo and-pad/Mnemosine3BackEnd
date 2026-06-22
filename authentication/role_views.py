@@ -8,6 +8,13 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from authentication.custom_jwt import CustomJWTAuthentication
+from authentication.user_documents import (
+    build_user_collection_query,
+    get_user_lookup_ids,
+    get_user_username,
+    get_user_email,
+    normalize_user_document,
+)
 from user_queries.driver_database.mongo import Mongo
 
 MODEL_TYPE_USER = "Mnemosine\\User"
@@ -66,6 +73,8 @@ def serialize_role(role, permissions):
 def serialize_user(user, roles, direct_permissions):
     serialized = serialize_mongo(user)
     serialized["id_str"] = serialized.get("_id")
+    serialized["username"] = get_user_username(user)
+    serialized["email"] = get_user_email(user)
     serialized["roles"] = [serialize_mongo(role) for role in roles]
     serialized["role_ids"] = [str(role["_id"]) for role in roles]
     serialized["role_names"] = [role.get("name") for role in roles]
@@ -140,10 +149,26 @@ def get_role_permissions_map(mongo, role_ids):
     return grouped
 
 
-def get_user_roles_and_permissions_map(mongo, user_ids):
-    role_links = list(mongo.connect("user_has_roles").find({"model_id": {"$in": user_ids}}))
+def get_user_roles_and_permissions_map(mongo, users):
+    lookup_to_user_id = {}
+    lookup_ids = []
+
+    for user in users:
+        normalized_user = normalize_user_document(user, context="role_views.get_user_roles_and_permissions_map")
+        user_object_id = normalized_user.get("object_id")
+        if not user_object_id:
+            continue
+
+        for lookup_id in get_user_lookup_ids(user):
+            lookup_to_user_id[lookup_id] = user_object_id
+            lookup_ids.append(lookup_id)
+
+    if not lookup_ids:
+        return {}, {}
+
+    role_links = list(mongo.connect("user_has_roles").find({"model_id": {"$in": lookup_ids}}))
     direct_links = list(
-        mongo.connect("user_has_permissions").find({"model_id": {"$in": user_ids}})
+        mongo.connect("user_has_permissions").find({"model_id": {"$in": lookup_ids}})
     )
 
     role_ids = [
@@ -165,19 +190,19 @@ def get_user_roles_and_permissions_map(mongo, user_ids):
 
     user_roles_map = {}
     for link in role_links:
-        model_id = link.get("model_id")
+        canonical_user_id = lookup_to_user_id.get(link.get("model_id"))
         role = role_map.get(link.get("role_id"))
-        if not model_id or not role:
+        if not canonical_user_id or not role:
             continue
-        user_roles_map.setdefault(model_id, []).append(role)
+        user_roles_map.setdefault(canonical_user_id, []).append(role)
 
     user_direct_permissions_map = {}
     for link in direct_links:
-        model_id = link.get("model_id")
+        canonical_user_id = lookup_to_user_id.get(link.get("model_id"))
         permission = permission_map.get(link.get("permission_id"))
-        if not model_id or not permission:
+        if not canonical_user_id or not permission:
             continue
-        user_direct_permissions_map.setdefault(model_id, []).append(permission)
+        user_direct_permissions_map.setdefault(canonical_user_id, []).append(permission)
 
     return user_roles_map, user_direct_permissions_map
 
@@ -198,16 +223,18 @@ class RoleManageView(BaseRoleAPIView):
         roles = list(mongo.connect("roles").find().sort("id", 1))
         users = list(
             mongo.connect("authentication_my_user")
-            .find({"deleted_at": None}, {"username": 1, "email": 1, "is_active": 1})
+            .find(
+                build_user_collection_query({"deleted_at": None}),
+                {"username": 1, "email": 1, "is_active": 1, "id": 1},
+            )
             .sort("username", 1)
         )
 
         role_ids = [role["_id"] for role in roles]
-        user_ids = [user["_id"] for user in users]
 
         role_permissions_map = get_role_permissions_map(mongo, role_ids)
         user_roles_map, user_direct_permissions_map = get_user_roles_and_permissions_map(
-            mongo, user_ids
+            mongo, users
         )
 
         return Response(
@@ -324,7 +351,7 @@ class UserRoleAccessDetailView(BaseRoleAPIView):
         if not parsed_user_id:
             return None
         return mongo.connect("authentication_my_user").find_one(
-            {"_id": parsed_user_id, "deleted_at": None}
+            build_user_collection_query({"_id": parsed_user_id, "deleted_at": None})
         )
 
     def get(self, request, user_id):
@@ -338,7 +365,7 @@ class UserRoleAccessDetailView(BaseRoleAPIView):
         roles = list(mongo.connect("roles").find().sort("id", 1))
         permissions = list(mongo.connect("permissions").find().sort("id", 1))
         user_roles_map, user_direct_permissions_map = get_user_roles_and_permissions_map(
-            mongo, [user["_id"]]
+            mongo, [user]
         )
 
         return Response(
@@ -383,7 +410,7 @@ class UserRoleAccessDetailView(BaseRoleAPIView):
         user_roles_collection = mongo.connect("user_has_roles")
         user_permissions_collection = mongo.connect("user_has_permissions")
 
-        user_roles_collection.delete_many({"model_id": user["_id"]})
+        user_roles_collection.delete_many({"model_id": {"$in": get_user_lookup_ids(user)}})
         if role_ids:
             user_roles_collection.insert_many(
                 [
@@ -397,7 +424,7 @@ class UserRoleAccessDetailView(BaseRoleAPIView):
                 ]
             )
 
-        user_permissions_collection.delete_many({"model_id": user["_id"]})
+        user_permissions_collection.delete_many({"model_id": {"$in": get_user_lookup_ids(user)}})
         if permission_ids:
             user_permissions_collection.insert_many(
                 [

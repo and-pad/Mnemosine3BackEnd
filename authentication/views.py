@@ -1,9 +1,11 @@
 # Create your views here.
 # import json
+import logging
 from time import time
 
 import jwt
 from bson import ObjectId
+from pymongo import ReturnDocument
 
 # from django.contrib.auth.models import User
 from django.contrib.auth import authenticate, get_user_model
@@ -17,12 +19,22 @@ from rest_framework.views import APIView
 
 # from rest_framework_simplejwt.authentication import JWTAuthentication
 from authentication.custom_jwt import CustomJWTAuthentication
+from authentication.user_documents import (
+    LEGACY_USER_COUNTER_ID,
+    USER_COUNTER_COLLECTION,
+    USER_COUNTER_KEY,
+    build_user_collection_query,
+    get_user_lookup_ids,
+    get_user_username,
+    normalize_user_document,
+)
 from user_queries.driver_database.mongo import Mongo
 
 # from django.shortcuts import get_object_or_404
 from .mongo_queries import getPermissions
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
 
 
 SECRET = "Ax100_2022_xLk8optaeqna9d5WdAfCeeGdLk84YgDe"
@@ -121,7 +133,7 @@ class signinView(APIView):
             {
                 "refresh": refresh,
                 "access": access,
-                "user": user.username,
+                "user": getattr(user, "username", "") or getattr(user, "email", ""),
                 "permissions": user_permissions,
             },
             status=202,
@@ -167,7 +179,7 @@ class signinView(APIView):
         return Response(
             {
                 "access": new_access,
-                "user": user_doc["username"],
+                "user": get_user_username(user_doc),
                 "permissions": user_permissions,
             }
         )
@@ -392,110 +404,73 @@ class UserManage(APIView):
     authentication_classes = [CustomJWTAuthentication]
 
     def get(self, request):
-        # Obtén todos los usuarios
         mongo = Mongo()
         users_collection = mongo.connect("authentication_my_user")
-        all_users = list(users_collection.find({"deleted_at": None}))
+        roles_collection = mongo.connect("roles")
+        user_roles_collection = mongo.connect("user_has_roles")
 
-        users_active = [
-            {
-                "id": str(user["_id"]),
-                "username": user["username"],
-                "email": user["email"],
-            }
-            for user in all_users
-            if user.get("is_active", True)
+        all_users = [
+            normalize_user_document(user, context="UserManage.get")
+            for user in users_collection.find(build_user_collection_query({"deleted_at": None}))
         ]
-        # print (users_active)
-        users_inactive = [
-            {
-                "id": str(user["_id"]),
-                "username": user["username"],
-                "email": user["email"],
-            }
-            for user in all_users
-            if not user.get("is_active", True)
-        ]
-        # print("users_inactivesss",users_inactive)
-        # Convertir usuarios a JSON
+
         users_active_json = []
         users_inactive_json = []
-        mongo = Mongo()
-        # Procesar usuarios activos
-        for user in users_active:
+
+        for user in all_users:
             user_id = user.get("id")
+            if user_id is None:
+                logger.warning("Skipping user document without _id in UserManage.get: %s", user)
+                continue
+
             roles = []
-            rolesId = []
-            if user_id is not None:
-                # Consulta en MongoDB
-                collection = mongo.connect("user_has_roles")
-                cursor = collection.find({"model_id": ObjectId(user_id)})
-                results = list(cursor)
+            roles_id = []
+            lookup_ids = get_user_lookup_ids(user["raw"])
+            results = list(user_roles_collection.find({"model_id": {"$in": lookup_ids}}))
 
-                for item in results:
-                    collection = mongo.connect("roles")
-                    role_data = collection.find_one({"_id": ObjectId(item["role_id"])})
-
-                    roles.append(role_data.get("name", "Unknown"))
-                    rolesId.append(
-                        {
-                            "name": role_data.get("name", "unknown"),
-                            "id": str(role_data.get("_id", "Unknown")),
-                        }
+            for item in results:
+                role_data = roles_collection.find_one({"_id": item.get("role_id")})
+                if not role_data:
+                    logger.warning(
+                        "Missing role document for user %s with role_id=%s",
+                        user_id,
+                        item.get("role_id"),
                     )
-                # Agregar al JSON de usuarios activos
-                users_active_json.append(
+                    continue
+
+                role_name = role_data.get("name", "Unknown")
+                roles.append(role_name)
+                roles_id.append(
                     {
-                        "user": user.get("username", ""),
-                        "email": user.get("email", ""),
-                        "rol": roles,
-                        "rol_w_id": rolesId,
-                        "_id": user_id,
+                        "name": role_name,
+                        "id": str(role_data.get("_id", "Unknown")),
                     }
                 )
 
-        # Procesar usuarios inactivos
-        for user in users_inactive:
-            user_id = user.get("id")
-            roles = []
-            rolesId = []
+            payload = {
+                "user": user.get("username", ""),
+                "email": user.get("email", ""),
+                "rol": roles,
+                "_id": user_id,
+            }
+
+            if user.get("is_active", True):
+                payload["rol_w_id"] = roles_id
+                users_active_json.append(payload)
+                continue
+
             deletable = True
-            if user_id is not None:
-                # Consulta en MongoDB
-                collection = mongo.connect("user_has_roles")
-                cursor = collection.find({"model_id": ObjectId(user_id)})
-                results = list(cursor)
+            if user.get("object_id") is not None:
+                deletable = not mongo.searchUserInCollections(user["object_id"])
+            payload["deletable"] = deletable
+            users_inactive_json.append(payload)
 
-                for item in results:
-                    collection = mongo.connect("roles")
-                    role_data = collection.find_one({"_id": ObjectId(item["role_id"])})
-                    if role_data:
-                        roles.append(role_data.get("name", "Unknown"))
-
-                deletable = not mongo.searchUserInCollections(ObjectId(user_id))
-
-            # Agregar al JSON de usuarios inactivos
-            if user_id is not None:
-                users_inactive_json.append(
-                    {
-                        "user": user.get("username", ""),
-                        "email": user.get("email", ""),
-                        "rol": roles,
-                        "_id": user_id,
-                        "deletable": deletable,
-                    }
-                )
-
-        roles = mongo.connect("roles")
-        roles = list(roles.find())
-        # aparte de el name del rol tambien obtener el id
         roles = [
-            {"name": role.get("name"), "id": str(role.get("_id"))} for role in roles
+            {"name": role.get("name"), "id": str(role.get("_id"))}
+            for role in roles_collection.find()
         ]
         roles_id = [{"name": role.get("name")} for role in roles]
 
-        # print("users_inactive",users_inactive_json)
-        # Responder con los datos procesados
         return Response(
             {
                 "users_active": users_active_json,
@@ -516,24 +491,58 @@ class SignupView(APIView):
         # Extraer los datos del campo 'formData'
         form_data = request.data.get("formData", {})
 
-        # Mapear los campos a los requeridos por el serializer
         mongo = Mongo()
-        collection = mongo.connect("authentication_my_user")
-        # en auth_user hay una objeto que tiene el nombre max_count_id, filtrarlo por nombre y luego aumentarle 1
-        cursor = collection.find_one({"max_count_id": {"$exists": True}})
+        users_collection = mongo.connect("authentication_my_user")
+        counters_collection = mongo.connect(USER_COUNTER_COLLECTION)
+        try:
+            role_id = ObjectId(form_data.get("role", ""))
+        except Exception:
+            return Response(
+                {"error": "El rol seleccionado no es válido"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        if cursor:
-            # Extraer el valor actual de "max_count_id"
-            current_value = cursor.get(
-                "max_count_id", 0
-            )  # Si el campo no existe, toma 0 como valor por defecto
+        if mongo.connect("roles").find_one({"_id": role_id}) is None:
+            return Response(
+                {"error": "El rol seleccionado no existe"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-            # Sumar 1 al valor
-            new_value = current_value + 1
+        legacy_counter = users_collection.find_one({"_id": LEGACY_USER_COUNTER_ID})
+        if legacy_counter:
+            logger.warning(
+                "Migrating legacy user counter document out of authentication_my_user: %s",
+                legacy_counter,
+            )
+            counters_collection.update_one(
+                {"_id": USER_COUNTER_KEY},
+                {"$max": {"sequence": int(legacy_counter.get("max_count_id", 0))}},
+                upsert=True,
+            )
+            users_collection.delete_one({"_id": LEGACY_USER_COUNTER_ID})
+
+        counter = counters_collection.find_one({"_id": USER_COUNTER_KEY})
+        if counter is None:
+            last_user = users_collection.find_one(
+                build_user_collection_query({"id": {"$type": "number"}}),
+                sort=[("id", -1)],
+                projection={"id": 1},
+            )
+            initial_value = last_user.get("id", 0) if last_user else 0
+            counters_collection.insert_one(
+                {"_id": USER_COUNTER_KEY, "sequence": initial_value}
+            )
+
+        counter = counters_collection.find_one_and_update(
+            {"_id": USER_COUNTER_KEY},
+            {"$inc": {"sequence": 1}},
+            return_document=ReturnDocument.AFTER,
+        )
+        new_value = counter["sequence"]
 
         formatted_data = {
-            "username": form_data.get("NewName", ""),  # Convertir 'name' a 'username'
-            "password": form_data.get("newPassword", ""),
+            "username": form_data.get("NewName", ""),
+            "password": form_data.get("NewPassword", ""),
             "email": form_data.get("NewEmail", ""),
             "id": new_value,
         }
@@ -544,22 +553,14 @@ class SignupView(APIView):
         if serializer.is_valid():
             try:
                 user = serializer.save()
-                collection.update_one(
-                    {
-                        "_id": cursor["_id"]
-                    },  # Condición para encontrar el documento por su ID
-                    {"$set": {"max_count_id": new_value}},  # Actualización del campo
-                )
-
-                collection = mongo.connect("user_has_roles")
-                # Crear un documento en la colección user_has_roles
-                collection.insert_one(
-                    {"model_id": new_value, "role_id": int(form_data.get("role", 0))}
+                inserted_user = users_collection.find_one({"id": new_value})
+                mongo.connect("user_has_roles").insert_one(
+                    {"model_id": inserted_user["_id"], "role_id": role_id}
                 )
             except Exception as e:
                 print("NameError occurred. ", e)
                 return Response(
-                    {"Error", str(e)}
+                    {"error": str(e)}, status=status.HTTP_400_BAD_REQUEST
                 )  # Responder la excepcion de que ya existe para actuar
 
             if user:
