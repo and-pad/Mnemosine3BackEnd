@@ -176,3 +176,125 @@ docker compose up --build
 The backend will be available after the containers finish starting.
 
 Continue with the **Configuration** section to configure MongoDB, environment variables and authentication.
+
+## File Storage
+
+Mnemikon stores images and documents on the local filesystem.
+
+Before running the application, configure the storage directories in `settings.py` according to your deployment.
+
+The following paths must be reviewed:
+
+- Inventory images
+- Research images
+- Restoration images
+- Inventory documents
+- Research documents
+- Restoration documents
+- Temporary uploads
+
+
+# Configuration
+
+Mnemikon is configured through the `settings.py` file.
+
+Before running the application, review the following settings according to your environment.
+
+## General
+
+- `SECRET_KEY`
+- `DEBUG`
+- `ALLOWED_HOSTS`
+
+## MongoDB
+
+Configure the MongoDB connection:
+
+- `MONGO_DB_NAME`
+- `MONGO_USER_NAME`
+- `MONGO_PASSWORD`
+- `MONGO_IP`
+- `MONGO_PORT`
+
+## Authentication
+
+The backend uses:
+
+- Django custom user model
+- Custom MongoDB authentication backend
+- JWT authentication
+
+## CORS
+
+During development configure:
+
+- `CORS_ALLOWED_ORIGINS`
+
+For production, configure only the frontend domain.
+
+## File Storage
+
+Mnemikon stores uploaded images and documents on the local filesystem.
+
+Before running the application, review and update the storage paths in `settings.py` according to your deployment.
+
+### Temporary uploads
+
+- `TEMPORARY_UPLOAD_DIRECTORY`
+
+### Inventory
+
+Images
+
+- `PHOTO_INVENTORY_PATH`
+- `THUMBNAILS_INVENTORY_PATH`
+
+Documents
+
+- `DOCUMENT_INVENTORY_PATH`
+
+### Research
+
+Images
+
+- `PHOTO_RESEARCH_PATH`
+- `THUMBNAILS_RESEARCH_PATH`
+
+Documents
+
+- `DOCUMENT_RESEARCH_PATH`
+
+### Restoration
+
+Images
+
+- `PHOTO_RESTORATION_PATH`
+- `THUMBNAILS_RESTORATION_PATH`
+
+Documents
+
+- `DOCUMENT_RESTORATION_PATH`
+
+> **Note**
+>
+> Mnemikon stores original images and generated thumbnails in separate directories. Documents, Photos and Thumbnail directories must exist and be writable by the application.
+
+# Running the Project (developer mode)
+
+Apply migrations (if required):
+
+```bash
+python manage.py migrate
+```
+
+Start the development server:
+
+```bash
+python manage.py runserver
+```
+
+The API will be available at:
+
+```
+http://127.0.0.1:8000/
+```

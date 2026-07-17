@@ -23,7 +23,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/4.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = "django-insecure-ivj7la__uiylc$a6b_usp#o^wqi#z19lr7tf3*z4y7ns39kui-"
+SECRET_KEY = "django-insecure-change-me"
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
@@ -150,17 +150,52 @@ SIMPLE_JWT = {
 }
 """
 
-
+# CORS settings
+# Is needed for development
+# beacause localhost:3000 is different from localhost:8000,
+# so the browser will block the requests.
+# Erase this in production, because the frontend
+#  and backend will be served from the same domain.
 CORS_ALLOW_ALL_ORIGINS = True
 
+CORS_ALLOW_METHODS = [
+    "GET",
+    "POST",
+    "PUT",
+    "DELETE",
+    "OPTIONS",
+    "PATCH",
+]
 
+CORS_ALLOW_HEADERS = [
+    "Content-Type",
+    "Authorization",
+]
+
+###############################################################
+
+# This is the configuration for the MongoDB database,
+#  which is used to modify the authentication backend
+#  to use the custom authentication with MongoDB.
+
+# Custom user model is the name of collection in MongoDB,
+# which is used to store the users.
 AUTH_USER_MODEL = "authentication.MyUser"
+
+# Custom authentication backend is the name of the class
+#  that is used to authenticate the users.
 AUTHENTICATION_BACKENDS = [
     "authentication.backends.MongoAuthBackend",
     "django.contrib.auth.backends.ModelBackend",
 ]
 
-STATIC_PATH_DOCX = "/var/www/html/MnemosineReact/static/documents/app/reportes/"
+
+
+#STATIC_PATH_DOCX = "/var/www/html/MnemosineReact/static/documents/app/reportes/"
+
+# paths for images and documents
+# change these paths to the correct ones in your server
+
 BLANK_IMG = (
     "/var/www/html/MnemosineReact/static/documents/app/public/inventario/blank.png"
 )
@@ -189,6 +224,8 @@ DOCUMENT_RESTORATION_PATH = (
     "/var/www/html/MnemosineReact/static/documents/app/public/restauracion/documentos/"
 )
 
+# In Institutions collection, the field name of the institution name
+# need be the same as this variable and the only one with the same value
 INSTITUTION_NAME = "Museum Name"
 # Name of the position that can create new inventory items, that is only record 
 # in database in the collection contacts, in field position is the only one that
@@ -201,23 +238,11 @@ quitar al finalizar el desarrollo
 """
 
 AUDIT_MANAGER_TIME_ZONE = "America/Mexico_City"
-CAMBIO_DE_TITULO = "Cambio de título"
+#CAMBIO_DE_TITULO = "Cambio de título"
+
+# ips and ports of the frontend that are allowed to make requests to the backend
 CORS_ALLOWED_ORIGINS = [
     
-]
-
-CORS_ALLOW_METHODS = [
-    "GET",
-    "POST",
-    "PUT",
-    "DELETE",
-    "OPTIONS",
-    "PATCH",
-]
-
-CORS_ALLOW_HEADERS = [
-    "Content-Type",
-    "Authorization",
 ]
 
 APPEND_SLASH = False
@@ -230,3 +255,4 @@ MONGO_DB_NAME = "Mnemosine"
 MONGO_USER_NAME = "usuario1"
 MONGO_PASSWORD = "123456"
 MONGO_PORT = "27017"
+MONGO_IP = "localhost"

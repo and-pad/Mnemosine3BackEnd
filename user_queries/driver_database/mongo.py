@@ -8,9 +8,10 @@ class Mongo: #En estas entradas del contsructor puedes poner tu usuario y passwo
         self.user = kwargs.get("user_name", settings.MONGO_USER_NAME)
         self.password = kwargs.get("password", settings.MONGO_PASSWORD)
         self.port = kwargs.get("port", settings.MONGO_PORT)
-        self.client = pymongo.MongoClient(f"mongodb://{self.user}:{self.password}@localhost:{self.port}/?replicaSet=rs0")
+        self.ip = kwargs.get("ip", settings.MONGO_IP or "localhost")
+        self.client = pymongo.MongoClient(f"mongodb://{self.user}:{self.password}@{self.ip}:{self.port}/?replicaSet=rs0")
         #self.clientSession = pymongo.MongoClient(
-        #f"mongodb://{self.user}:{self.password}@localhost:{self.port}/?replicaSet=rs0"
+        #f"mongodb://{self.user}:{self.password}@{self.ip}:{self.port}/?replicaSet=rs0"
         #)
         
         
