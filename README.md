@@ -8,8 +8,6 @@ The project was designed as a modern, extensible and self-hosted solution for mu
 
 ## Application Preview
 
-<p align="center">
-  <img src="docs/images/inventory.png" alt="Inventory Module" width="900">
-</p>
+![Inventory Module](docs/images/inventory.png)
 
 *Inventory module showing museum object management, images and associated documentation.*
