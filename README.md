@@ -177,22 +177,6 @@ The backend will be available after the containers finish starting.
 
 Continue with the **Configuration** section to configure MongoDB, environment variables and authentication.
 
-## File Storage
-
-Mnemikon stores images and documents on the local filesystem.
-
-Before running the application, configure the storage directories in `settings.py` according to your deployment.
-
-The following paths must be reviewed:
-
-- Inventory images
-- Research images
-- Restoration images
-- Inventory documents
-- Research documents
-- Restoration documents
-- Temporary uploads
-
 
 # Configuration
 
@@ -279,7 +263,7 @@ Documents
 >
 > Mnemikon stores original images and generated thumbnails in separate directories. Documents, Photos and Thumbnail directories must exist and be writable by the application.
 
-# Running the Project (developer mode)
+# Running the Project (Development)
 
 Apply migrations (if required):
 
