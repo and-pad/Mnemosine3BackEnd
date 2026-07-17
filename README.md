@@ -39,6 +39,6 @@ The backend exposes a REST API that powers the frontend application while handli
 
 ## Application Preview
 
-![Inventory Module](docs/images/mnemikonInventarioEng.jpg)
+![Inventory Module](docs/images/MnemikonInventarioEng.jpg)
 
 *Inventory module displaying museum object metadata, images, documents and collection management tools.*
