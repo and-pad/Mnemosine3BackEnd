@@ -29,12 +29,7 @@ SECRET_KEY = "django-insecure-ivj7la__uiylc$a6b_usp#o^wqi#z19lr7tf3*z4y7ns39kui-
 DEBUG = True
 
 ALLOWED_HOSTS = [
-    "la-ea.duckdns.org",
-    "192.168.1.70",
     
-    "and-pad.duckdns.org",
-    "localhost",
-    "127.0.0.1",
 ]
 # Application definition
 
@@ -194,8 +189,11 @@ DOCUMENT_RESTORATION_PATH = (
     "/var/www/html/MnemosineReact/static/documents/app/public/restauracion/documentos/"
 )
 
-INSTITUTION_NAME = "Museo Franz Mayer"
-POSITION_NAME_NEW_INVENTORY = "Directora de colecciones"
+INSTITUTION_NAME = "Museum Name"
+# Name of the position that can create new inventory items, that is only record 
+# in database in the collection contacts, in field position is the only one that
+# can figure as contact  and guard contact in the creation of inventory items
+POSITION_NAME_NEW_INVENTORY = "Director de colecciones"
 
 """
 Esto es para permitir CORS en el servidor de desarrollo de Django
@@ -205,8 +203,7 @@ quitar al finalizar el desarrollo
 AUDIT_MANAGER_TIME_ZONE = "America/Mexico_City"
 CAMBIO_DE_TITULO = "Cambio de título"
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",    
-    "http://192.168.1.70:3000",
+    
 ]
 
 CORS_ALLOW_METHODS = [
