@@ -534,18 +534,19 @@ class InventoryEdit(APIView):
             }
             
 
-            if "changed_pics" in cursor_change:
+            is_approved = request.data.get("isApproved")
+            if is_approved and "changed_pics" in cursor_change:
                 self.process_changed_pics(cursor_change, user_id, _id)
-            if "changed_pics_info" in cursor_change:
+            if is_approved and "changed_pics_info" in cursor_change:
                 self.process_changed_pics_info(cursor_change, user_id, _id)
-            if "new_pics" in cursor_change:
+            if is_approved and "new_pics" in cursor_change:
                 self.process_new_pics(cursor_change, user_id, _id)
 
-            if "changed_docs" in cursor_change:
+            if is_approved and "changed_docs" in cursor_change:
                 self.process_changed_docs(cursor_change, user_id, _id)
-            if "changed_docs_info" in cursor_change:
+            if is_approved and "changed_docs_info" in cursor_change:
                 self.process_changed_docs_info(cursor_change, user_id, _id)
-            if "new_docs" in cursor_change:
+            if is_approved and "new_docs" in cursor_change:
                 self.process_new_docs(cursor_change, user_id, _id)
 
             try:
