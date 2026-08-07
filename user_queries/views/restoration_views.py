@@ -26,6 +26,7 @@ from authentication.custom_jwt import CustomJWTAuthentication
 from user_queries.shemas.restorations_shema import RestorationsShema
 from user_queries.mongo_queries import PIECES_ALL
 from types import SimpleNamespace
+from user_queries.dataclasses.pictures import PicturesContext
 
 from .restorations.new import RestorationNew
 
@@ -187,7 +188,9 @@ class RestorationEdit(APIView):
                     actualized_doc_ids, documents = process_documents(
                         request,
                         ids_actual_docs, changes_docs, new_docs, _id, moduleId, mongo, session)
-                    data_pics = process_pictures(request, pics_new, changed_pics,changes_pics_inputs )
+                    ctx_pictures = PicturesContext(request=request, pics_new=pics_new, changed_pics=changed_pics, changes_pics_inputs=changes_pics_inputs)
+
+                    data_pics = process_pictures(ctx_pictures)
 
 
                     if changes or data_pics :                    
