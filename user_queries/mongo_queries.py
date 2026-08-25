@@ -643,23 +643,44 @@ PIECES_ALL = [
         "foreignField": "_id",      
         "as": "involved_creation_info",
     }
-},
+    },
+    {
+        # Resuelve una sola vez los modulos de inventario. El siguiente lookup
+        # sobrescribe este campo temporal con la misma estructura de salida que
+        # tenia el pipeline original.
+        "$lookup": {
+            "from": "modules",
+            "pipeline": [
+                {"$match": {"name": "inventory"}},
+                {"$project": {"_id": 1}},
+            ],
+            "as": "photo_thumb_info",
+        }
+    },
     {
         "$lookup": {
             "from": "photographs",
-            "let": {"piece_id": "$_id"},
+            "let": {
+                "piece_id": "$_id",
+                "inventory_module_ids": "$photo_thumb_info._id",
+            },
             "pipeline": [
-                {"$match": {"$expr": {"$eq": ["$piece_id", "$$piece_id"]}}},
-                {"$match": {"deleted_at": None}},
                 {
-                    "$lookup": {
-                        "from": "modules",
-                        "localField": "module_id",
-                        "foreignField": "_id",
-                        "as": "module_info",
+                    "$match": {
+                        "deleted_at": None,
+                        "$expr": {
+                            "$and": [
+                                {"$eq": ["$piece_id", "$$piece_id"]},
+                                {
+                                    "$in": [
+                                        "$module_id",
+                                        "$$inventory_module_ids",
+                                    ]
+                                },
+                            ]
+                        },
                     }
                 },
-                {"$match": {"module_info.name": "inventory"}},
                 # Ordenar primero por 'main_photogrphy' (de mayor a menor, para que el 1 esté primero)
                 {"$sort": {"main_photogrphy": -1}},
                 # Limitar el resultado a solo 1
