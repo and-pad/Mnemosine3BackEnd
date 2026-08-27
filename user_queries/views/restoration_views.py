@@ -192,6 +192,12 @@ class RestorationEdit(APIView):
 
                     data_pics = process_pictures(ctx_pictures)
 
+                    has_document_changes = bool(
+                        documents.get("new_docs") or changes_docs
+                    )
+                    has_effective_changes = bool(
+                        changes or data_pics or has_document_changes
+                    )
 
                     if changes or data_pics :                    
                         result = self.save_restoration_changes(changes, data_pics,actualized_doc_ids, user_id, _id, restoration_id, restoration, mongo, session)
@@ -211,8 +217,13 @@ class RestorationEdit(APIView):
                         "restoration_before_changes": restoration,
                     }
 
-                    history_set =AuditManager().add_timestampsInfo(changes_data, ObjectId(user_id))
-                    mongo.connect("restoration_changes_history").insert_one(history_set, session=session)
+                    if has_effective_changes:
+                        history_set = AuditManager().add_timestampsInfo(
+                            changes_data, ObjectId(user_id)
+                        )
+                        mongo.connect("restoration_changes_history").insert_one(
+                            history_set, session=session
+                        )
                     
         
             except Exception as e:       

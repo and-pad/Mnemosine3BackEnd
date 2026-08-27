@@ -18,8 +18,8 @@ def process_documents(request, ids_actual_docs, changes_docs,  new_docs, _id, mo
     new_docs_history = process_new_docs(request, new_docs, _id, moduleId, mongo, session)   
     print("ids_actual_docs before", ids_actual_docs)
     if new_docs_history:
-        for doc in new_docs_history:
-            ids_actual_docs.append(doc["_id"])
+        for document_id in new_docs_history:
+            ids_actual_docs.append(document_id)
     print("ids_actual_docs after", ids_actual_docs)
     return ids_actual_docs, {"changes": changes_history, "new_docs": new_docs_history}
     
@@ -178,14 +178,14 @@ def save_to_db(file, filename, name, _id, moduleId, user_id, mongo, session):
         # Validar y preparar el esquema con Pydantic
         schema = DocumentSchema(**document).model_dump()
         # Insertar el documento en MongoDB
-        result = mongo.connect("documents").insert_one(schema, session=session )
-        # Leemos documento para historial
-        inserted_doc = mongo.connect("documents").find_one({"_id": result.inserted_id}, session=session )
+        insert_result = mongo.connect("documents").insert_one(
+            schema, session=session
+        )
         
     except PyMongoError as e:
         raise PyMongoError(f"Error al insertar el documento en MongoDB: {e}")
     
-    return inserted_doc.inserted_id
+    return insert_result.inserted_id
 
 
 def update_to_db(meta, user_id, mongo, session, file=None, filename=None, ):

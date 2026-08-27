@@ -50,14 +50,31 @@ class MongoAPIIntegrationTests(SimpleTestCase):
         self.research_document_directory = os.path.join(
             self.temporary_upload_directory, "research_documents"
         )
+        self.restoration_photo_directory = os.path.join(
+            self.temporary_upload_directory, "restoration_photos"
+        )
+        self.restoration_thumbnail_directory = os.path.join(
+            self.temporary_upload_directory, "restoration_thumbnails"
+        )
+        self.restoration_document_directory = os.path.join(
+            self.temporary_upload_directory, "restoration_documents"
+        )
         os.makedirs(self.research_photo_directory)
         os.makedirs(self.research_thumbnail_directory)
         os.makedirs(self.research_document_directory)
+        os.makedirs(self.restoration_photo_directory)
+        os.makedirs(self.restoration_thumbnail_directory)
+        os.makedirs(self.restoration_document_directory)
         self.settings_override = override_settings(
             TEMPORARY_UPLOAD_DIRECTORY=self.temporary_upload_directory + os.sep,
             PHOTO_RESEARCH_PATH=self.research_photo_directory + os.sep,
             THUMBNAILS_RESEARCH_PATH=self.research_thumbnail_directory + os.sep,
             DOCUMENT_RESEARCH_PATH=self.research_document_directory + os.sep,
+            PHOTO_RESTORATION_PATH=self.restoration_photo_directory + os.sep,
+            THUMBNAILS_RESTORATION_PATH=(
+                self.restoration_thumbnail_directory + os.sep
+            ),
+            DOCUMENT_RESTORATION_PATH=self.restoration_document_directory + os.sep,
         )
         self.settings_override.enable()
 
@@ -147,6 +164,130 @@ class MongoAPIIntegrationTests(SimpleTestCase):
         }
         self.mongo.connect("pieces").insert_one(piece)
         return piece, module
+
+    def create_restoration_piece(
+        self,
+        *,
+        inventory_number="TEST-INVENTORY-RESTORATION-001",
+    ):
+        module = {
+            "_id": ObjectId(),
+            "name": "restoration",
+            "deleted_at": None,
+        }
+        self.mongo.connect("modules").insert_one(module)
+
+        piece = {
+            "_id": ObjectId(),
+            "inventory_number": inventory_number,
+            "origin_number": "TEST-RESTORATION-ORIGIN",
+            "catalog_number": "TEST-RESTORATION-CATALOG",
+            "tags": "TEST_RESTORATION_PIECE",
+            "deleted_at": None,
+        }
+        self.mongo.connect("pieces").insert_one(piece)
+        return piece, module
+
+    def create_restoration_responsible(self):
+        catalog = {
+            "_id": ObjectId(),
+            "code": "responsible_restorer",
+            "name": "TEST_RESTORATION_RESPONSIBLE_CATALOG",
+            "deleted_at": None,
+        }
+        responsible = {
+            "_id": ObjectId(),
+            "catalog_id": catalog["_id"],
+            "title": "TEST_RESTORATION_RESPONSIBLE",
+            "deleted_at": None,
+        }
+        self.mongo.connect("catalogs").insert_one(catalog)
+        self.mongo.connect("catalog_elements").insert_one(responsible)
+        return responsible
+
+    @staticmethod
+    def restoration_create_payload(responsible_restorer):
+        changes = {
+            "preliminary_examination": {
+                "oldValue": "",
+                "newValue": "TEST-RESTORATION-EXAMINATION-ORIGINAL",
+            },
+            "treatment_description": {
+                "oldValue": "",
+                "newValue": "TEST-RESTORATION-TREATMENT-UNCHANGED",
+            },
+            "observations": {
+                "oldValue": "",
+                "newValue": "TEST-RESTORATION-OBSERVATIONS-ORIGINAL",
+            },
+            "responsible_restorer": {
+                "oldValue": None,
+                "newValue": str(responsible_restorer),
+            },
+        }
+        return {
+            "formDatachanges": json.dumps(changes),
+            "PicsNew": json.dumps([]),
+            "DocumentsNew": json.dumps([]),
+        }
+
+    @staticmethod
+    def restoration_edit_payload():
+        changes = {
+            "preliminary_examination": {
+                "oldValue": "TEST-RESTORATION-EXAMINATION-ORIGINAL",
+                "newValue": "TEST-RESTORATION-EXAMINATION-UPDATED",
+            },
+            "observations": {
+                "oldValue": "TEST-RESTORATION-OBSERVATIONS-ORIGINAL",
+                "newValue": "TEST-RESTORATION-OBSERVATIONS-UPDATED",
+            },
+        }
+        return {
+            "formDatachanges": json.dumps(changes),
+            "changedPicsInputs": json.dumps({}),
+            "PicsNew": json.dumps([]),
+            "ChangedPics": json.dumps({}),
+            "changedDocs": json.dumps({}),
+            "DocumentsNew": json.dumps([]),
+        }
+
+    def submit_restoration_create(self, piece, access, responsible_restorer):
+        return self.client.post(
+            f"/authenticated/piece_restorations/insert/{piece['_id']}/",
+            self.restoration_create_payload(responsible_restorer),
+            format="multipart",
+            **self.authorization(access),
+        )
+
+    def submit_restoration_edit(self, piece, restoration, access):
+        return self.client.patch(
+            "/authenticated/piece_restorations/update/"
+            f"{piece['_id']}/restoration/{restoration['_id']}/",
+            self.restoration_edit_payload(),
+            format="multipart",
+            **self.authorization(access),
+        )
+
+    @staticmethod
+    def restoration_empty_patch_payload():
+        return {
+            "formDatachanges": json.dumps({}),
+            "changedPicsInputs": json.dumps({}),
+            "PicsNew": json.dumps([]),
+            "ChangedPics": json.dumps({}),
+            "changedDocs": json.dumps({}),
+            "DocumentsNew": json.dumps([]),
+        }
+
+    def submit_restoration_payload(self, piece, restoration, access, payload):
+        return self.client.patch(
+            "/authenticated/piece_restorations/update/"
+            f"{piece['_id']}/restoration/{restoration['_id']}/",
+            payload,
+            format="multipart",
+            **self.authorization(access),
+        )
 
     @staticmethod
     def research_edit_payload(changes):
@@ -1392,6 +1533,350 @@ class MongoAPIIntegrationTests(SimpleTestCase):
             ),
             1,
         )
+
+    def test_restoration_create_persists_fields_and_initial_audit(self):
+        user, password = create_authorized_user(["agregar_restauracion"])
+        _, access = login_test_user(self.client, user, password)
+        piece, _ = self.create_restoration_piece()
+        responsible_restorer = self.create_restoration_responsible()
+
+        restorations = self.mongo.connect("restorations")
+        self.assertEqual(restorations.count_documents({"piece_id": piece["_id"]}), 0)
+
+        response = self.submit_restoration_create(
+            piece, access, responsible_restorer["_id"]
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data, {})
+        self.assertEqual(restorations.count_documents({"piece_id": piece["_id"]}), 1)
+        restoration = restorations.find_one({"piece_id": piece["_id"]})
+        self.assertIsInstance(restoration["_id"], ObjectId)
+        self.assertEqual(restoration["piece_id"], piece["_id"])
+        self.assertEqual(
+            restoration["preliminary_examination"],
+            "TEST-RESTORATION-EXAMINATION-ORIGINAL",
+        )
+        self.assertEqual(
+            restoration["treatment_description"],
+            "TEST-RESTORATION-TREATMENT-UNCHANGED",
+        )
+        self.assertEqual(
+            restoration["observations"],
+            "TEST-RESTORATION-OBSERVATIONS-ORIGINAL",
+        )
+        self.assertEqual(
+            restoration["responsible_restorer"], responsible_restorer["_id"]
+        )
+        self.assertEqual(restoration["created_by"], user["_id"])
+        self.assertIsNotNone(restoration["created_at"])
+        self.assertIsNone(restoration["updated_by"])
+        self.assertIsNone(restoration["updated_at"])
+        self.assertIsNone(restoration["deleted_by"])
+        self.assertIsNone(restoration["deleted_at"])
+        self.assertEqual(restoration["photographs_ids"], [])
+        self.assertEqual(restoration["documents_ids"], [])
+        self.assertEqual(
+            self.mongo.connect("restoration_changes_history").count_documents({}),
+            0,
+        )
+        self.assertEqual(self.mongo.connect("photographs").count_documents({}), 0)
+        self.assertEqual(self.mongo.connect("documents").count_documents({}), 0)
+
+    def test_restoration_edit_updates_same_record_and_persists_history_snapshot(self):
+        creator, creator_password = create_authorized_user(
+            ["agregar_restauracion"],
+            role_name="TEST_RESTORATION_CREATOR_ROLE",
+            email="test_restoration_creator@example.com",
+            username="TEST_RESTORATION_CREATOR",
+        )
+        _, creator_access = login_test_user(
+            self.client, creator, creator_password
+        )
+        piece, _ = self.create_restoration_piece()
+        responsible_restorer = self.create_restoration_responsible()
+        create_response = self.submit_restoration_create(
+            piece, creator_access, responsible_restorer["_id"]
+        )
+        self.assertEqual(create_response.status_code, 200)
+
+        restorations = self.mongo.connect("restorations")
+        before = restorations.find_one({"piece_id": piece["_id"]})
+        self.assertIsNotNone(before)
+
+        editor, editor_password = create_authorized_user(
+            ["editar_restauracion"],
+            role_name="TEST_RESTORATION_EDITOR_ROLE",
+            role_numeric_id=2,
+            permission_start_id=2,
+            email="test_restoration_editor@example.com",
+            username="TEST_RESTORATION_EDITOR",
+            user_numeric_id=2,
+        )
+        _, editor_access = login_test_user(self.client, editor, editor_password)
+
+        response = self.submit_restoration_edit(piece, before, editor_access)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data, {"response": "Restauración actualizada"})
+        self.assertEqual(restorations.count_documents({"piece_id": piece["_id"]}), 1)
+        after = restorations.find_one({"_id": before["_id"]})
+        self.assertEqual(after["_id"], before["_id"])
+        self.assertEqual(after["piece_id"], before["piece_id"])
+        self.assertEqual(
+            after["preliminary_examination"],
+            "TEST-RESTORATION-EXAMINATION-UPDATED",
+        )
+        self.assertEqual(
+            after["observations"], "TEST-RESTORATION-OBSERVATIONS-UPDATED"
+        )
+        self.assertEqual(
+            after["treatment_description"],
+            "TEST-RESTORATION-TREATMENT-UNCHANGED",
+        )
+        self.assertEqual(after["created_by"], before["created_by"])
+        self.assertEqual(after["created_at"], before["created_at"])
+        self.assertEqual(after["updated_by"], editor["_id"])
+        self.assertIsNotNone(after["updated_at"])
+        self.assertGreaterEqual(after["updated_at"], after["created_at"])
+        self.assertEqual(after["photographs_ids"], before["photographs_ids"])
+        self.assertEqual(after["documents_ids"], before["documents_ids"])
+
+        histories = list(
+            self.mongo.connect("restoration_changes_history").find(
+                {"restoration_id": before["_id"]}
+            )
+        )
+        self.assertEqual(len(histories), 1)
+        history = histories[0]
+        self.assertEqual(history["piece_id"], piece["_id"])
+        self.assertEqual(history["created_by"], editor["_id"])
+        self.assertIsNotNone(history["created_at"])
+        self.assertEqual(
+            history["changes"]["preliminary_examination"]["newValue"],
+            "TEST-RESTORATION-EXAMINATION-UPDATED",
+        )
+        snapshot = history["restoration_before_changes"]
+        self.assertEqual(snapshot["_id"], before["_id"])
+        self.assertEqual(snapshot["piece_id"], piece["_id"])
+        self.assertEqual(
+            snapshot["preliminary_examination"],
+            "TEST-RESTORATION-EXAMINATION-ORIGINAL",
+        )
+        self.assertEqual(
+            snapshot["treatment_description"],
+            "TEST-RESTORATION-TREATMENT-UNCHANGED",
+        )
+        self.assertEqual(snapshot["created_by"], creator["_id"])
+        self.assertEqual(snapshot["created_at"], before["created_at"])
+
+    def test_restoration_create_without_permission_is_rejected_without_side_effects(self):
+        user, password = create_authorized_user(["ver_restauracion"])
+        _, access = login_test_user(self.client, user, password)
+        piece, _ = self.create_restoration_piece()
+
+        response = self.submit_restoration_create(piece, access, ObjectId())
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data, "No tienes permiso para agregar restauraciones")
+        self.assertEqual(self.mongo.connect("restorations").count_documents({}), 0)
+        self.assertEqual(
+            self.mongo.connect("restoration_changes_history").count_documents({}),
+            0,
+        )
+        self.assertEqual(self.mongo.connect("photographs").count_documents({}), 0)
+        self.assertEqual(self.mongo.connect("documents").count_documents({}), 0)
+
+    def test_restoration_edit_without_permission_preserves_record_and_history(self):
+        creator, creator_password = create_authorized_user(
+            ["agregar_restauracion"],
+            role_name="TEST_RESTORATION_CREATOR_ROLE",
+            email="test_restoration_creator@example.com",
+            username="TEST_RESTORATION_CREATOR",
+        )
+        _, creator_access = login_test_user(
+            self.client, creator, creator_password
+        )
+        piece, _ = self.create_restoration_piece()
+        responsible_restorer = self.create_restoration_responsible()
+        self.assertEqual(
+            self.submit_restoration_create(
+                piece, creator_access, responsible_restorer["_id"]
+            ).status_code,
+            200,
+        )
+        restorations = self.mongo.connect("restorations")
+        before = restorations.find_one({"piece_id": piece["_id"]})
+
+        viewer, viewer_password = create_authorized_user(
+            ["ver_restauracion"],
+            role_name="TEST_RESTORATION_VIEWER_ROLE",
+            role_numeric_id=2,
+            permission_start_id=2,
+            email="test_restoration_viewer@example.com",
+            username="TEST_RESTORATION_VIEWER",
+            user_numeric_id=2,
+        )
+        _, viewer_access = login_test_user(self.client, viewer, viewer_password)
+
+        response = self.submit_restoration_edit(piece, before, viewer_access)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data, "No tienes permiso para editar restauraciones")
+        self.assertEqual(restorations.find_one({"_id": before["_id"]}), before)
+        self.assertEqual(restorations.count_documents({"piece_id": piece["_id"]}), 1)
+        self.assertEqual(
+            self.mongo.connect("restoration_changes_history").count_documents({}),
+            0,
+        )
+        self.assertEqual(self.mongo.connect("photographs").count_documents({}), 0)
+        self.assertEqual(self.mongo.connect("documents").count_documents({}), 0)
+
+    def test_restoration_create_with_document_persists_file_and_relationship(self):
+        user, password = create_authorized_user(["agregar_restauracion"])
+        _, access = login_test_user(self.client, user, password)
+        piece, module = self.create_restoration_piece()
+        responsible_restorer = self.create_restoration_responsible()
+        document_content = b"TEST-RESTORATION-DOCUMENT-CONTENT"
+        document_file = SimpleUploadedFile(
+            "test-restoration-document.txt",
+            document_content,
+            content_type="text/plain",
+        )
+        payload = self.restoration_create_payload(responsible_restorer["_id"])
+        payload["DocumentsNew"] = json.dumps(
+            [{"name": "TEST-RESTORATION-DOCUMENT"}]
+        )
+        payload["files[new_doc_0]"] = document_file
+
+        response = self.client.post(
+            f"/authenticated/piece_restorations/insert/{piece['_id']}/",
+            payload,
+            format="multipart",
+            **self.authorization(access),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data, {})
+        documents = list(self.mongo.connect("documents").find({}))
+        self.assertEqual(len(documents), 1)
+        document = documents[0]
+        self.assertIsInstance(document["_id"], ObjectId)
+        self.assertEqual(document["name"], "TEST-RESTORATION-DOCUMENT")
+        self.assertEqual(document["piece_id"], piece["_id"])
+        self.assertEqual(document["module_id"], module["_id"])
+        self.assertEqual(document["size"], len(document_content))
+        self.assertEqual(document["mime_type"], "text/plain")
+        self.assertEqual(document["created_by"], user["_id"])
+        stored_path = os.path.join(
+            self.restoration_document_directory, document["file_name"]
+        )
+        self.assertTrue(os.path.isfile(stored_path))
+        with open(stored_path, "rb") as stored_file:
+            self.assertEqual(stored_file.read(), document_content)
+
+        restoration = self.mongo.connect("restorations").find_one(
+            {"piece_id": piece["_id"]}
+        )
+        self.assertEqual(restoration["documents_ids"], [document["_id"]])
+        self.assertEqual(restoration["photographs_ids"], [])
+        self.assertEqual(
+            self.mongo.connect("restorations").count_documents(
+                {"piece_id": piece["_id"]}
+            ),
+            1,
+        )
+
+    def test_restoration_patch_with_new_document_uses_shared_document_creation(self):
+        user, password = create_authorized_user(
+            ["agregar_restauracion", "editar_restauracion"]
+        )
+        _, access = login_test_user(self.client, user, password)
+        piece, _ = self.create_restoration_piece()
+        responsible_restorer = self.create_restoration_responsible()
+        self.assertEqual(
+            self.submit_restoration_create(
+                piece, access, responsible_restorer["_id"]
+            ).status_code,
+            200,
+        )
+        restoration = self.mongo.connect("restorations").find_one(
+            {"piece_id": piece["_id"]}
+        )
+        document_content = b"TEST-RESTORATION-PATCH-DOCUMENT-CONTENT"
+        document_file = SimpleUploadedFile(
+            "test-restoration-patch-document.txt",
+            document_content,
+            content_type="text/plain",
+        )
+        payload = self.restoration_edit_payload()
+        payload["DocumentsNew"] = json.dumps(
+            [{"name": "TEST-RESTORATION-PATCH-DOCUMENT"}]
+        )
+        payload["files[new_doc_0]"] = document_file
+
+        response = self.submit_restoration_payload(
+            piece, restoration, access, payload
+        )
+
+        self.assertEqual(response.status_code, 200)
+        documents = list(self.mongo.connect("documents").find({}))
+        self.assertEqual(len(documents), 1)
+        document = documents[0]
+        updated_restoration = self.mongo.connect("restorations").find_one(
+            {"_id": restoration["_id"]}
+        )
+        self.assertEqual(updated_restoration["documents_ids"], [document["_id"]])
+        self.assertEqual(document["piece_id"], piece["_id"])
+        self.assertEqual(document["name"], "TEST-RESTORATION-PATCH-DOCUMENT")
+        self.assertEqual(document["size"], len(document_content))
+        self.assertTrue(
+            os.path.isfile(
+                os.path.join(
+                    self.restoration_document_directory, document["file_name"]
+                )
+            )
+        )
+
+    def test_restoration_empty_patch_does_not_change_audit_or_history(self):
+        user, password = create_authorized_user(
+            ["agregar_restauracion", "editar_restauracion"]
+        )
+        _, access = login_test_user(self.client, user, password)
+        piece, _ = self.create_restoration_piece()
+        responsible_restorer = self.create_restoration_responsible()
+        self.assertEqual(
+            self.submit_restoration_create(
+                piece, access, responsible_restorer["_id"]
+            ).status_code,
+            200,
+        )
+        restorations = self.mongo.connect("restorations")
+        before = restorations.find_one({"piece_id": piece["_id"]})
+        history = self.mongo.connect("restoration_changes_history")
+        history_count = history.count_documents({"restoration_id": before["_id"]})
+
+        response = self.submit_restoration_payload(
+            piece,
+            before,
+            access,
+            self.restoration_empty_patch_payload(),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data, {"response": "Restauración actualizada"})
+        after = restorations.find_one({"_id": before["_id"]})
+        self.assertEqual(after, before)
+        self.assertEqual(after["_id"], before["_id"])
+        self.assertEqual(after["piece_id"], before["piece_id"])
+        self.assertEqual(after["updated_by"], before["updated_by"])
+        self.assertEqual(after["updated_at"], before["updated_at"])
+        self.assertEqual(
+            history.count_documents({"restoration_id": before["_id"]}),
+            history_count,
+        )
+        self.assertEqual(self.mongo.connect("photographs").count_documents({}), 0)
+        self.assertEqual(self.mongo.connect("documents").count_documents({}), 0)
 
 
     # This method is a test method executed after the setUp method, and it tests the inventory new API endpoint
