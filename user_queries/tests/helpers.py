@@ -116,12 +116,27 @@ def assign_permission_to_user(user, permission, model_type=MODEL_TYPE_USER):
     )
 
 
-def create_authorized_user(permission_names):
-    role = create_test_role()
-    for numeric_id, name in enumerate(permission_names, start=1):
+def create_authorized_user(
+    permission_names,
+    *,
+    role_name="TEST_ROLE",
+    role_numeric_id=1,
+    permission_start_id=1,
+    email="test_user@example.com",
+    password="TEST_PASSWORD_2026!",
+    username="TEST_USER",
+    user_numeric_id=1,
+):
+    role = create_test_role(role_name, role_numeric_id)
+    for numeric_id, name in enumerate(permission_names, start=permission_start_id):
         permission = create_test_permission(name, numeric_id)
         assign_permission_to_role(role, permission)
-    user, password = create_test_user()
+    user, password = create_test_user(
+        email=email,
+        password=password,
+        username=username,
+        numeric_id=user_numeric_id,
+    )
     assign_role_to_user(user, role)
     return user, password
 
