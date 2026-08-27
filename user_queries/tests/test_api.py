@@ -289,6 +289,80 @@ class MongoAPIIntegrationTests(SimpleTestCase):
             **self.authorization(access),
         )
 
+    def create_restoration_with_document(
+        self,
+        piece,
+        access,
+        responsible_restorer,
+        *,
+        name="TEST-RESTORATION-ORIGINAL-DOCUMENT",
+        content=b"TEST-RESTORATION-ORIGINAL-DOCUMENT-CONTENT",
+    ):
+        payload = self.restoration_create_payload(responsible_restorer)
+        payload["DocumentsNew"] = json.dumps([{"name": name}])
+        payload["files[new_doc_0]"] = SimpleUploadedFile(
+            "test-restoration-original-document.txt",
+            content,
+            content_type="text/plain",
+        )
+        response = self.client.post(
+            f"/authenticated/piece_restorations/insert/{piece['_id']}/",
+            payload,
+            format="multipart",
+            **self.authorization(access),
+        )
+        if response.status_code != 200:
+            raise AssertionError(
+                f"Could not create restoration document fixture: {response.data!r}"
+            )
+        restoration = self.mongo.connect("restorations").find_one(
+            {"piece_id": piece["_id"]}
+        )
+        document = self.mongo.connect("documents").find_one(
+            {"_id": restoration["documents_ids"][0]}
+        )
+        return restoration, document, content
+
+    def create_restoration_with_photograph(
+        self,
+        piece,
+        access,
+        responsible_restorer,
+    ):
+        image_file, image_content = self.research_png_upload(
+            "test-restoration-original-photograph.png"
+        )
+        payload = self.restoration_create_payload(responsible_restorer)
+        payload["PicsNew"] = json.dumps(
+            [
+                {
+                    "photographer": "TEST-RESTORATION-PHOTOGRAPHER",
+                    "photographed_at": "2026-08-27T12:00:00",
+                    "description": "TEST-RESTORATION-ORIGINAL-PHOTOGRAPH",
+                    "size": len(image_content),
+                    "mime_type": "image/png",
+                }
+            ]
+        )
+        payload["files[new_img_0]"] = image_file
+        response = self.client.post(
+            f"/authenticated/piece_restorations/insert/{piece['_id']}/",
+            payload,
+            format="multipart",
+            **self.authorization(access),
+        )
+        if response.status_code != 200:
+            raise AssertionError(
+                f"Could not create restoration photograph fixture: {response.data!r}"
+            )
+        restoration = self.mongo.connect("restorations").find_one(
+            {"piece_id": piece["_id"]}
+        )
+        photograph = self.mongo.connect("photographs").find_one(
+            {"_id": restoration["photographs_ids"][0]}
+        )
+        return restoration, photograph, image_content
+
     @staticmethod
     def research_edit_payload(changes):
         return {
@@ -1787,7 +1861,7 @@ class MongoAPIIntegrationTests(SimpleTestCase):
             1,
         )
 
-    def test_restoration_patch_with_new_document_uses_shared_document_creation(self):
+    def test_restoration_document_only_patch_updates_parent_audit_and_relationship(self):
         user, password = create_authorized_user(
             ["agregar_restauracion", "editar_restauracion"]
         )
@@ -1809,7 +1883,7 @@ class MongoAPIIntegrationTests(SimpleTestCase):
             document_content,
             content_type="text/plain",
         )
-        payload = self.restoration_edit_payload()
+        payload = self.restoration_empty_patch_payload()
         payload["DocumentsNew"] = json.dumps(
             [{"name": "TEST-RESTORATION-PATCH-DOCUMENT"}]
         )
@@ -1826,7 +1900,17 @@ class MongoAPIIntegrationTests(SimpleTestCase):
         updated_restoration = self.mongo.connect("restorations").find_one(
             {"_id": restoration["_id"]}
         )
+        self.assertEqual(updated_restoration["_id"], restoration["_id"])
+        self.assertEqual(updated_restoration["piece_id"], restoration["piece_id"])
         self.assertEqual(updated_restoration["documents_ids"], [document["_id"]])
+        self.assertEqual(updated_restoration["created_by"], restoration["created_by"])
+        self.assertEqual(updated_restoration["created_at"], restoration["created_at"])
+        self.assertEqual(updated_restoration["updated_by"], user["_id"])
+        self.assertIsNotNone(updated_restoration["updated_at"])
+        self.assertEqual(
+            updated_restoration["preliminary_examination"],
+            restoration["preliminary_examination"],
+        )
         self.assertEqual(document["piece_id"], piece["_id"])
         self.assertEqual(document["name"], "TEST-RESTORATION-PATCH-DOCUMENT")
         self.assertEqual(document["size"], len(document_content))
@@ -1836,6 +1920,19 @@ class MongoAPIIntegrationTests(SimpleTestCase):
                     self.restoration_document_directory, document["file_name"]
                 )
             )
+        )
+        histories = list(
+            self.mongo.connect("restoration_changes_history").find(
+                {"restoration_id": restoration["_id"]}
+            )
+        )
+        self.assertEqual(len(histories), 1)
+        self.assertEqual(
+            histories[0]["restoration_before_changes"]["documents_ids"], []
+        )
+        self.assertEqual(
+            histories[0]["restoration_before_changes"]["created_at"],
+            restoration["created_at"],
         )
 
     def test_restoration_empty_patch_does_not_change_audit_or_history(self):
@@ -1877,6 +1974,452 @@ class MongoAPIIntegrationTests(SimpleTestCase):
         )
         self.assertEqual(self.mongo.connect("photographs").count_documents({}), 0)
         self.assertEqual(self.mongo.connect("documents").count_documents({}), 0)
+
+    def test_restoration_existing_document_only_patch_updates_parent_audit(self):
+        user, password = create_authorized_user(
+            ["agregar_restauracion", "editar_restauracion"]
+        )
+        _, access = login_test_user(self.client, user, password)
+        piece, _ = self.create_restoration_piece()
+        responsible = self.create_restoration_responsible()
+        restoration, document_before, _ = self.create_restoration_with_document(
+            piece, access, responsible["_id"]
+        )
+        parent_before = self.mongo.connect("restorations").find_one(
+            {"_id": restoration["_id"]}
+        )
+        payload = self.restoration_empty_patch_payload()
+        payload["changedDocs"] = json.dumps(
+            {
+                "0": {
+                    "_id": str(document_before["_id"]),
+                    "name": {
+                        "oldValue": document_before["name"],
+                        "newValue": "TEST-RESTORATION-UPDATED-DOCUMENT-NAME",
+                    },
+                }
+            }
+        )
+
+        response = self.submit_restoration_payload(
+            piece, parent_before, access, payload
+        )
+
+        self.assertEqual(response.status_code, 200)
+        document_after = self.mongo.connect("documents").find_one(
+            {"_id": document_before["_id"]}
+        )
+        self.assertEqual(document_after["_id"], document_before["_id"])
+        self.assertEqual(
+            document_after["name"], "TEST-RESTORATION-UPDATED-DOCUMENT-NAME"
+        )
+        self.assertEqual(document_after["file_name"], document_before["file_name"])
+        self.assertEqual(document_after["updated_by"], user["_id"])
+        self.assertIsNotNone(document_after["updated_at"])
+        self.assertEqual(self.mongo.connect("documents").count_documents({}), 1)
+
+        parent_after = self.mongo.connect("restorations").find_one(
+            {"_id": parent_before["_id"]}
+        )
+        self.assertEqual(parent_after["documents_ids"], [document_before["_id"]])
+        self.assertEqual(parent_after["created_by"], parent_before["created_by"])
+        self.assertEqual(parent_after["created_at"], parent_before["created_at"])
+        self.assertEqual(parent_after["updated_by"], user["_id"])
+        self.assertIsNotNone(parent_after["updated_at"])
+        self.assertEqual(
+            parent_after["preliminary_examination"],
+            parent_before["preliminary_examination"],
+        )
+        histories = list(
+            self.mongo.connect("restoration_changes_history").find(
+                {"restoration_id": parent_before["_id"]}
+            )
+        )
+        self.assertEqual(len(histories), 1)
+        self.assertEqual(
+            histories[0]["restoration_before_changes"], parent_before
+        )
+
+    def test_restoration_new_photograph_is_removed_after_later_failure(self):
+        user, password = create_authorized_user(
+            ["agregar_restauracion", "editar_restauracion"]
+        )
+        _, access = login_test_user(self.client, user, password)
+        piece, _ = self.create_restoration_piece()
+        responsible = self.create_restoration_responsible()
+        self.assertEqual(
+            self.submit_restoration_create(piece, access, responsible["_id"]).status_code,
+            200,
+        )
+        parent_before = self.mongo.connect("restorations").find_one(
+            {"piece_id": piece["_id"]}
+        )
+        sentinel_photo = os.path.join(
+            self.restoration_photo_directory, "preexisting-photo-control.txt"
+        )
+        sentinel_thumbnail = os.path.join(
+            self.restoration_thumbnail_directory, "preexisting-thumb-control.txt"
+        )
+        for path in (sentinel_photo, sentinel_thumbnail):
+            with open(path, "wb") as control_file:
+                control_file.write(b"PREEXISTING")
+        image_file, image_content = self.research_png_upload(
+            "test-restoration-rollback-new-photo.png"
+        )
+        payload = self.restoration_empty_patch_payload()
+        payload["PicsNew"] = json.dumps(
+            [
+                {
+                    "photographer": "TEST-ROLLBACK-PHOTOGRAPHER",
+                    "photographed_at": "2026-08-27T12:00:00",
+                    "description": "TEST-ROLLBACK-RESTORATION-PHOTOGRAPH",
+                    "size": len(image_content),
+                    "mime_type": "image/png",
+                }
+            ]
+        )
+        payload["files[new_img_0]"] = image_file
+
+        with mock_patch(
+            "user_queries.views.restoration_views.RestorationEdit._refresh_changes_in_db",
+            side_effect=RuntimeError("TEST_RESTORATION_FAILURE_AFTER_PHOTO_WRITE"),
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError, "TEST_RESTORATION_FAILURE_AFTER_PHOTO_WRITE"
+            ):
+                self.submit_restoration_payload(
+                    piece, parent_before, access, payload
+                )
+
+        self.assertEqual(self.mongo.connect("photographs").count_documents({}), 0)
+        self.assertEqual(
+            self.mongo.connect("restorations").find_one({"_id": parent_before["_id"]}),
+            parent_before,
+        )
+        self.assertEqual(
+            self.mongo.connect("restoration_changes_history").count_documents({}), 0
+        )
+        self.assertEqual(os.listdir(self.restoration_photo_directory), [os.path.basename(sentinel_photo)])
+        self.assertEqual(
+            os.listdir(self.restoration_thumbnail_directory),
+            [os.path.basename(sentinel_thumbnail)],
+        )
+
+    def test_restoration_new_document_is_removed_after_later_failure(self):
+        user, password = create_authorized_user(
+            ["agregar_restauracion", "editar_restauracion"]
+        )
+        _, access = login_test_user(self.client, user, password)
+        piece, _ = self.create_restoration_piece()
+        responsible = self.create_restoration_responsible()
+        self.assertEqual(
+            self.submit_restoration_create(piece, access, responsible["_id"]).status_code,
+            200,
+        )
+        parent_before = self.mongo.connect("restorations").find_one(
+            {"piece_id": piece["_id"]}
+        )
+        sentinel = os.path.join(
+            self.restoration_document_directory, "preexisting-document-control.txt"
+        )
+        with open(sentinel, "wb") as control_file:
+            control_file.write(b"PREEXISTING")
+        payload = self.restoration_empty_patch_payload()
+        payload["DocumentsNew"] = json.dumps(
+            [{"name": "TEST-ROLLBACK-RESTORATION-DOCUMENT"}]
+        )
+        payload["files[new_doc_0]"] = SimpleUploadedFile(
+            "test-restoration-rollback-new-document.txt",
+            b"TEST-ROLLBACK-RESTORATION-DOCUMENT-CONTENT",
+            content_type="text/plain",
+        )
+
+        with mock_patch(
+            "user_queries.views.restoration_views.RestorationEdit._refresh_changes_in_db",
+            side_effect=RuntimeError("TEST_RESTORATION_FAILURE_AFTER_DOCUMENT_WRITE"),
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError, "TEST_RESTORATION_FAILURE_AFTER_DOCUMENT_WRITE"
+            ):
+                self.submit_restoration_payload(
+                    piece, parent_before, access, payload
+                )
+
+        self.assertEqual(self.mongo.connect("documents").count_documents({}), 0)
+        self.assertEqual(
+            self.mongo.connect("restorations").find_one({"_id": parent_before["_id"]}),
+            parent_before,
+        )
+        self.assertEqual(
+            os.listdir(self.restoration_document_directory),
+            [os.path.basename(sentinel)],
+        )
+
+    def test_restoration_photograph_replacement_restores_old_file_after_failure(self):
+        user, password = create_authorized_user(
+            ["agregar_restauracion", "editar_restauracion"]
+        )
+        _, access = login_test_user(self.client, user, password)
+        piece, _ = self.create_restoration_piece()
+        responsible = self.create_restoration_responsible()
+        parent_before, photograph_before, _ = self.create_restoration_with_photograph(
+            piece, access, responsible["_id"]
+        )
+        old_photo_path = os.path.join(
+            self.restoration_photo_directory, photograph_before["file_name"]
+        )
+        old_thumbnail_path = os.path.join(
+            self.restoration_thumbnail_directory, photograph_before["file_name"]
+        )
+        replacement_file, _ = self.research_png_upload(
+            "test-restoration-replacement-photo.png"
+        )
+        payload = self.restoration_empty_patch_payload()
+        payload["ChangedPics"] = json.dumps(
+            {"0": {"_id": str(photograph_before["_id"])}}
+        )
+        payload["files[changed_img_0]"] = replacement_file
+
+        with mock_patch(
+            "user_queries.views.restoration_views.RestorationEdit._refresh_changes_in_db",
+            side_effect=RuntimeError("TEST_RESTORATION_FAILURE_AFTER_PHOTO_REPLACEMENT"),
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError, "TEST_RESTORATION_FAILURE_AFTER_PHOTO_REPLACEMENT"
+            ):
+                self.submit_restoration_payload(
+                    piece, parent_before, access, payload
+                )
+
+        self.assertEqual(
+            self.mongo.connect("photographs").find_one(
+                {"_id": photograph_before["_id"]}
+            ),
+            photograph_before,
+        )
+        self.assertEqual(
+            self.mongo.connect("restorations").find_one({"_id": parent_before["_id"]}),
+            parent_before,
+        )
+        self.assertTrue(os.path.isfile(old_photo_path))
+        self.assertTrue(os.path.isfile(old_thumbnail_path))
+        self.assertFalse(
+            os.path.exists(
+                os.path.join(
+                    self.restoration_photo_directory,
+                    f"deleted_{photograph_before['file_name']}",
+                )
+            )
+        )
+        self.assertEqual(
+            os.listdir(self.restoration_photo_directory),
+            [photograph_before["file_name"]],
+        )
+        self.assertEqual(
+            os.listdir(self.restoration_thumbnail_directory),
+            [photograph_before["file_name"]],
+        )
+
+    def test_restoration_document_replacement_restores_old_file_after_failure(self):
+        user, password = create_authorized_user(
+            ["agregar_restauracion", "editar_restauracion"]
+        )
+        _, access = login_test_user(self.client, user, password)
+        piece, _ = self.create_restoration_piece()
+        responsible = self.create_restoration_responsible()
+        parent_before, document_before, _ = self.create_restoration_with_document(
+            piece, access, responsible["_id"]
+        )
+        old_document_path = os.path.join(
+            self.restoration_document_directory, document_before["file_name"]
+        )
+        payload = self.restoration_empty_patch_payload()
+        payload["changedDocs"] = json.dumps(
+            {
+                "0": {
+                    "_id": str(document_before["_id"]),
+                    "name": {
+                        "oldValue": document_before["name"],
+                        "newValue": "TEST-ROLLBACK-REPLACEMENT-DOCUMENT",
+                    },
+                }
+            }
+        )
+        payload["files[changed_doc_0]"] = SimpleUploadedFile(
+            "test-restoration-replacement-document.txt",
+            b"TEST-ROLLBACK-REPLACEMENT-DOCUMENT-CONTENT",
+            content_type="text/plain",
+        )
+
+        with mock_patch(
+            "user_queries.views.restoration_views.RestorationEdit._refresh_changes_in_db",
+            side_effect=RuntimeError("TEST_RESTORATION_FAILURE_AFTER_DOCUMENT_REPLACEMENT"),
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError, "TEST_RESTORATION_FAILURE_AFTER_DOCUMENT_REPLACEMENT"
+            ):
+                self.submit_restoration_payload(
+                    piece, parent_before, access, payload
+                )
+
+        self.assertEqual(
+            self.mongo.connect("documents").find_one(
+                {"_id": document_before["_id"]}
+            ),
+            document_before,
+        )
+        self.assertEqual(
+            self.mongo.connect("restorations").find_one({"_id": parent_before["_id"]}),
+            parent_before,
+        )
+        self.assertTrue(os.path.isfile(old_document_path))
+        self.assertFalse(
+            os.path.exists(
+                os.path.join(
+                    self.restoration_document_directory,
+                    f"deleted_{document_before['file_name']}",
+                )
+            )
+        )
+        self.assertEqual(
+            os.listdir(self.restoration_document_directory),
+            [document_before["file_name"]],
+        )
+
+    def test_restoration_successful_photograph_replacement_points_to_new_file(self):
+        user, password = create_authorized_user(
+            ["agregar_restauracion", "editar_restauracion"]
+        )
+        _, access = login_test_user(self.client, user, password)
+        piece, _ = self.create_restoration_piece()
+        responsible = self.create_restoration_responsible()
+        parent_before, photograph_before, _ = self.create_restoration_with_photograph(
+            piece, access, responsible["_id"]
+        )
+        replacement_file, replacement_content = self.research_png_upload(
+            "test-restoration-successful-replacement.png"
+        )
+        payload = self.restoration_empty_patch_payload()
+        payload["ChangedPics"] = json.dumps(
+            {"0": {"_id": str(photograph_before["_id"])}}
+        )
+        payload["files[changed_img_0]"] = replacement_file
+
+        response = self.submit_restoration_payload(
+            piece, parent_before, access, payload
+        )
+
+        self.assertEqual(response.status_code, 200)
+        photograph_after = self.mongo.connect("photographs").find_one(
+            {"_id": photograph_before["_id"]}
+        )
+        self.assertNotEqual(photograph_after["file_name"], photograph_before["file_name"])
+        self.assertEqual(photograph_after["updated_by"], user["_id"])
+        new_photo_path = os.path.join(
+            self.restoration_photo_directory, photograph_after["file_name"]
+        )
+        with open(new_photo_path, "rb") as stored_file:
+            self.assertEqual(stored_file.read(), replacement_content)
+        self.assertTrue(
+            os.path.isfile(
+                os.path.join(
+                    self.restoration_thumbnail_directory,
+                    photograph_after["file_name"],
+                )
+            )
+        )
+        self.assertTrue(
+            os.path.isfile(
+                os.path.join(
+                    self.restoration_photo_directory,
+                    f"deleted_{photograph_before['file_name']}",
+                )
+            )
+        )
+        self.assertTrue(
+            os.path.isfile(
+                os.path.join(
+                    self.restoration_thumbnail_directory,
+                    f"deleted_{photograph_before['file_name']}",
+                )
+            )
+        )
+        parent_after = self.mongo.connect("restorations").find_one(
+            {"_id": parent_before["_id"]}
+        )
+        self.assertEqual(parent_after["photographs_ids"], [photograph_before["_id"]])
+        self.assertEqual(parent_after["updated_by"], user["_id"])
+        self.assertEqual(
+            self.mongo.connect("restoration_changes_history").count_documents(
+                {"restoration_id": parent_before["_id"]}
+            ),
+            1,
+        )
+
+    def test_restoration_successful_document_replacement_points_to_new_file(self):
+        user, password = create_authorized_user(
+            ["agregar_restauracion", "editar_restauracion"]
+        )
+        _, access = login_test_user(self.client, user, password)
+        piece, _ = self.create_restoration_piece()
+        responsible = self.create_restoration_responsible()
+        parent_before, document_before, _ = self.create_restoration_with_document(
+            piece, access, responsible["_id"]
+        )
+        replacement_content = b"TEST-SUCCESSFUL-REPLACEMENT-DOCUMENT-CONTENT"
+        payload = self.restoration_empty_patch_payload()
+        payload["changedDocs"] = json.dumps(
+            {
+                "0": {
+                    "_id": str(document_before["_id"]),
+                    "name": {
+                        "oldValue": document_before["name"],
+                        "newValue": "TEST-SUCCESSFUL-REPLACEMENT-DOCUMENT",
+                    },
+                }
+            }
+        )
+        payload["files[changed_doc_0]"] = SimpleUploadedFile(
+            "test-restoration-successful-replacement.txt",
+            replacement_content,
+            content_type="text/plain",
+        )
+
+        response = self.submit_restoration_payload(
+            piece, parent_before, access, payload
+        )
+
+        self.assertEqual(response.status_code, 200)
+        document_after = self.mongo.connect("documents").find_one(
+            {"_id": document_before["_id"]}
+        )
+        self.assertNotEqual(document_after["file_name"], document_before["file_name"])
+        self.assertEqual(document_after["name"], "TEST-SUCCESSFUL-REPLACEMENT-DOCUMENT")
+        self.assertEqual(document_after["updated_by"], user["_id"])
+        new_document_path = os.path.join(
+            self.restoration_document_directory, document_after["file_name"]
+        )
+        with open(new_document_path, "rb") as stored_file:
+            self.assertEqual(stored_file.read(), replacement_content)
+        self.assertTrue(
+            os.path.isfile(
+                os.path.join(
+                    self.restoration_document_directory,
+                    f"deleted_{document_before['file_name']}",
+                )
+            )
+        )
+        parent_after = self.mongo.connect("restorations").find_one(
+            {"_id": parent_before["_id"]}
+        )
+        self.assertEqual(parent_after["documents_ids"], [document_before["_id"]])
+        self.assertEqual(parent_after["updated_by"], user["_id"])
+        self.assertEqual(
+            self.mongo.connect("restoration_changes_history").count_documents(
+                {"restoration_id": parent_before["_id"]}
+            ),
+            1,
+        )
 
 
     # This method is a test method executed after the setUp method, and it tests the inventory new API endpoint

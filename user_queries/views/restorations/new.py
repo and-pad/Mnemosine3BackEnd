@@ -10,7 +10,14 @@ from ...shemas.restorations_shema import RestorationsShema
 import json
 from bson import ObjectId
 from user_queries.views.tools import AuditManager
-from user_queries.views.common.utils import format_new_pic, format_restoration_data, generate_random_file_name, get_module_id, process_thumbnail
+from user_queries.views.common.utils import (
+    cleanup_request_files,
+    format_new_pic,
+    format_restoration_data,
+    generate_random_file_name,
+    get_module_id,
+    process_thumbnail,
+)
 from rest_framework.permissions import IsAuthenticated
 from authentication.custom_jwt import CustomJWTAuthentication
 from .pictures_handler import process_pictures
@@ -59,18 +66,30 @@ class RestorationNew(APIView):
             return validation_response
 
         (data, pics_new, new_docs)= self.load_request(request, _id, mongo)
+        created_files = []
+        moved_files = []
         
         with mongo.start_session() as session:
             try:
                 with session.start_transaction():
                     
-                    new_restoration_id = self.save_restoration(request, _id, data, pics_new, new_docs, mongo, session)
+                    new_restoration_id = self.save_restoration(
+                        request,
+                        _id,
+                        data,
+                        pics_new,
+                        new_docs,
+                        mongo,
+                        session,
+                        created_files,
+                    )
 
 
 
             except Exception as e:
                 print(e)
-                raise e
+                cleanup_request_files(created_files, moved_files)
+                raise
 
         
         return Response({}, status=status.HTTP_200_OK)
@@ -89,7 +108,17 @@ class RestorationNew(APIView):
 
         return (changes, pics_new, new_docs)
     
-    def save_restoration(self, request, _id, data, pics_new, new_docs, mongo, session):        
+    def save_restoration(
+        self,
+        request,
+        _id,
+        data,
+        pics_new,
+        new_docs,
+        mongo,
+        session,
+        created_files,
+    ):
         
         restoration = format_restoration_data(data)
         restoration["piece_id"] = ObjectId(_id)
@@ -99,7 +128,9 @@ class RestorationNew(APIView):
         restoration = RestorationsShema(**restoration).model_dump(exclude_none=False)       
         result = mongo.connect("restorations").insert_one(restoration, session=session)
         
-        files_ids = self.process_files(request,_id, pics_new, new_docs, mongo, session)
+        files_ids = self.process_files(
+            request, _id, pics_new, new_docs, mongo, session, created_files
+        )
 
         restoration["photographs_ids"] = files_ids["photographs_ids"]
         restoration["documents_ids"] = files_ids["documents_ids"]
@@ -114,12 +145,18 @@ class RestorationNew(APIView):
         restoration = RestorationsShema(**restoration)
         mongo.connect("restorations").insert_one(restoration.model_dump())
         """
-    def process_files(self, request, _id, pics_new, new_docs, mongo, session):           
+    def process_files(
+        self, request, _id, pics_new, new_docs, mongo, session, created_files
+    ):
 
-        ctx_pics = PicturesContext(request=request,  pics_new=pics_new)
+        ctx_pics = PicturesContext(
+            request=request, pics_new=pics_new, created_files=created_files
+        )
 
         new_pics = process_pictures(ctx_pics)  
-        photographs_ids = self.process_new_pics(new_pics, request.user.id, _id, mongo, session)
+        photographs_ids = self.process_new_pics(
+            new_pics, request.user.id, _id, mongo, session, created_files
+        )
 
         """
         ctx_documents = DocumentsContext(
@@ -134,14 +171,18 @@ class RestorationNew(APIView):
         
         moduleId = get_module_id("restoration", mongo)
 
-        documents_ids = process_new_docs(request, new_docs, _id, moduleId,  mongo,  session)
+        documents_ids = process_new_docs(
+            request, new_docs, _id, moduleId, mongo, session, created_files
+        )
 
         return {"photographs_ids": photographs_ids, "documents_ids": documents_ids}
 
 
 
    
-    def process_new_pics(self, data_pics, user_id, _id, mongo, session):
+    def process_new_pics(
+        self, data_pics, user_id, _id, mongo, session, created_files
+    ):
         photographs_ids = []
         print("data_pics", data_pics)
         if data_pics.get("new_pics"):
@@ -151,7 +192,7 @@ class RestorationNew(APIView):
             for new_pic in data_pics["new_pics"]:
                 # este es el objeto como debe ser guardado en la base, su shema.                                                                           
                 result = mongo.collection("photographs").insert_one(PhotographSchema(**format_new_pic(new_pic, ObjectId(user_id), moduleId, _id)).model_dump(), session=session)
-                process_thumbnail(new_pic, "restoration")
+                process_thumbnail(new_pic, "restoration", created_files)
                 photographs_ids.append(result.inserted_id)
             
         return photographs_ids

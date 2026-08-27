@@ -1,7 +1,11 @@
 #from user_queries.driver_database import mongo
 from hmac import new
-from ..common.utils import generate_random_file_name
-from ..common.utils import add_delete_to_actual_document_file_name
+from ..common.utils import (
+    add_delete_to_actual_document_file_name,
+    generate_random_file_name,
+    register_created_file,
+)
+import os
 from django.conf import settings
 #from user_queries.driver_database.mongo import Mongo
 from ...shemas.document_shema import DocumentSchema
@@ -9,23 +13,50 @@ from ..tools import AuditManager
 from pymongo.errors import PyMongoError
 from bson import ObjectId
 
-def process_documents(request, ids_actual_docs, changes_docs,  new_docs, _id, moduleId, mongo, session):
+def process_documents(
+    request,
+    ids_actual_docs,
+    changes_docs,
+    new_docs,
+    _id,
+    moduleId,
+    mongo,
+    session,
+    created_files=None,
+    moved_files=None,
+):
 
     
-    changes_history = process_changed_docs(request,changes_docs, mongo, session)
+    changes_history, changed_documents = process_changed_docs(
+        request, changes_docs, mongo, session, created_files, moved_files
+    )
     # De process_changed no devuelve ids, porque no se crean nuevos documentos,
     # solo se actualizan los existentes
-    new_docs_history = process_new_docs(request, new_docs, _id, moduleId, mongo, session)   
+    new_docs_history = process_new_docs(
+        request, new_docs, _id, moduleId, mongo, session, created_files
+    )
     print("ids_actual_docs before", ids_actual_docs)
     if new_docs_history:
         for document_id in new_docs_history:
             ids_actual_docs.append(document_id)
     print("ids_actual_docs after", ids_actual_docs)
-    return ids_actual_docs, {"changes": changes_history, "new_docs": new_docs_history}
+    has_document_changes = bool(new_docs_history or changed_documents)
+    return (
+        ids_actual_docs,
+        {"changes": changes_history, "new_docs": new_docs_history},
+        has_document_changes,
+    )
     
 
 
-def process_changed_docs(request, changes_docs, mongo, session):
+def process_changed_docs(
+    request,
+    changes_docs,
+    mongo,
+    session,
+    created_files=None,
+    moved_files=None,
+):
     """
     Procesa documentos modificados, actualizando su información en la base de datos
     y reemplazando archivos si se proporcionan.
@@ -49,9 +80,10 @@ def process_changed_docs(request, changes_docs, mongo, session):
         OSError: Si ocurre un error al guardar archivos en el servidor.
     """
     if not changes_docs:
-        return {"changed_documents": []}
+        return {"changed_documents": []}, False
 
     changed_documents = {}
+    has_changes = False
 
     for key, meta in changes_docs.items():
         print("meta", meta)
@@ -64,13 +96,18 @@ def process_changed_docs(request, changes_docs, mongo, session):
                 # Generar nombre aleatorio y guardar archivo físicamente
                 print("file", file)
                 filename = generate_random_file_name(file.name)
-                save_doc_files(file, filename)
+                save_doc_files(file, filename, created_files)
 
                 # Marcar el archivo anterior como eliminado si aplica
-                add_delete_to_actual_document_file_name(meta["_id"], "restoration")
+                add_delete_to_actual_document_file_name(
+                    meta["_id"], "restoration", moved_files
+                )
 
                 # Actualizar documento en DB
-                changed_documents = update_to_db(meta, request.user.id, mongo, session, file, filename)
+                changed_documents, document_changed = update_to_db(
+                    meta, request.user.id, mongo, session, file, filename
+                )
+                has_changes = document_changed or has_changes
                 print("changed_documents", changed_documents)
                 # Agregar info al registro de cambios                
 
@@ -81,7 +118,10 @@ def process_changed_docs(request, changes_docs, mongo, session):
 
         else:
             # Solo cambio de metadatos (nombre)
-            update_to_db(meta, request.user.id, mongo, session)
+            _, document_changed = update_to_db(
+                meta, request.user.id, mongo, session
+            )
+            has_changes = document_changed or has_changes
             changed_documents.setdefault("changed_documents", []).append(
                 {
                     "key": key,
@@ -90,9 +130,17 @@ def process_changed_docs(request, changes_docs, mongo, session):
                 }
             )
 
-    return changed_documents
+    return changed_documents, has_changes
 
-def process_new_docs(request, new_docs, _id, moduleId, mongo, session):
+def process_new_docs(
+    request,
+    new_docs,
+    _id,
+    moduleId,
+    mongo,
+    session,
+    created_files=None,
+):
     """
     Procesa y guarda documentos nuevos asociados a una pieza.
     Si falla la inserción en la DB, aborta todo el proceso.
@@ -119,7 +167,7 @@ def process_new_docs(request, new_docs, _id, moduleId, mongo, session):
                     filename = generate_random_file_name(file.name)
 
                     # Guardar el archivo físicamente
-                    save_doc_files(file, filename)
+                    save_doc_files(file, filename, created_files)
 
                     # Guardar en la base de datos (si falla, aborta todo)
                     doc_saved = save_to_db(
@@ -133,11 +181,15 @@ def process_new_docs(request, new_docs, _id, moduleId, mongo, session):
 
     return inserted_docs
 
-def save_doc_files(file, filename):        
+def save_doc_files(file, filename, created_files=None):
     file_path = f"{settings.DOCUMENT_RESTORATION_PATH}{filename}"
-    with open(file_path, "wb") as f:
-        for chunk in file.chunks():
-            f.write(chunk)
+    try:
+        with open(file_path, "xb") as f:
+            for chunk in file.chunks():
+                f.write(chunk)
+    finally:
+        if os.path.isfile(file_path):
+            register_created_file(file_path, created_files)
 
 
 def save_to_db(file, filename, name, _id, moduleId, user_id, mongo, session):
@@ -258,7 +310,10 @@ def update_to_db(meta, user_id, mongo, session, file=None, filename=None, ):
         if not after_update:
             raise PyMongoError(f"Documento actualizado no se pudo leer después del update _id={meta['_id']}")
 
-        return {"before_update": before_update, "after_update": after_update}
+        return (
+            {"before_update": before_update, "after_update": after_update},
+            result.modified_count > 0,
+        )
 
     except PyMongoError as e:
         raise PyMongoError(f"Error al actualizar el documento en MongoDB: {e}")
