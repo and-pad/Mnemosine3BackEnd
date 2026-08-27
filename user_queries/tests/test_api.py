@@ -2,10 +2,12 @@ import json
 import os
 import shutil
 import tempfile
+from io import BytesIO
 
 from bson import ObjectId
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase, override_settings
+from PIL import Image
 from rest_framework.test import APIClient
 
 from user_queries.driver_database.mongo import Mongo
@@ -38,8 +40,23 @@ class MongoAPIIntegrationTests(SimpleTestCase):
         self.temporary_upload_directory = tempfile.mkdtemp(
             prefix="mnemosine_api_tests_"
         )
+        self.research_photo_directory = os.path.join(
+            self.temporary_upload_directory, "research_photos"
+        )
+        self.research_thumbnail_directory = os.path.join(
+            self.temporary_upload_directory, "research_thumbnails"
+        )
+        self.research_document_directory = os.path.join(
+            self.temporary_upload_directory, "research_documents"
+        )
+        os.makedirs(self.research_photo_directory)
+        os.makedirs(self.research_thumbnail_directory)
+        os.makedirs(self.research_document_directory)
         self.settings_override = override_settings(
-            TEMPORARY_UPLOAD_DIRECTORY=self.temporary_upload_directory + os.sep
+            TEMPORARY_UPLOAD_DIRECTORY=self.temporary_upload_directory + os.sep,
+            PHOTO_RESEARCH_PATH=self.research_photo_directory + os.sep,
+            THUMBNAILS_RESEARCH_PATH=self.research_thumbnail_directory + os.sep,
+            DOCUMENT_RESEARCH_PATH=self.research_document_directory + os.sep,
         )
         self.settings_override.enable()
 
@@ -152,6 +169,45 @@ class MongoAPIIntegrationTests(SimpleTestCase):
             format="multipart",
             **self.authorization(access),
         )
+
+    def submit_research_payload(self, piece, access, payload):
+        return self.client.patch(
+            f"/authenticated/piece_researchs/edit/{piece['_id']}/",
+            payload,
+            format="multipart",
+            **self.authorization(access),
+        )
+
+    def initialize_research(self, piece, access):
+        response = self.submit_research_edit(
+            piece,
+            access,
+            {
+                "title": {
+                    "oldValue": None,
+                    "newValue": "TEST-RESEARCH-AUXILIARY-BASE",
+                },
+                "card": {
+                    "oldValue": None,
+                    "newValue": "TEST-RESEARCH-AUXILIARY-CARD",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        research = self.mongo.connect("researchs").find_one(
+            {"piece_id": piece["_id"]}
+        )
+        self.assertIsNotNone(research)
+        return research
+
+    def assert_research_parent_audit(self, before, after, user):
+        self.assertEqual(after["_id"], before["_id"])
+        self.assertEqual(after["piece_id"], before["piece_id"])
+        self.assertEqual(after["created_by"], before["created_by"])
+        self.assertEqual(after["created_at"], before["created_at"])
+        self.assertEqual(after["updated_by"], user["_id"])
+        self.assertIsNotNone(after["updated_at"])
+        self.assertGreaterEqual(after["updated_at"], after["created_at"])
 
 
     # This method is a test method executed after the setUp method, and it tests the user query API endpoint
@@ -703,6 +759,229 @@ class MongoAPIIntegrationTests(SimpleTestCase):
         self.assertEqual(snapshot["piece_id"], piece["_id"])
         self.assertEqual(snapshot["title"], "TEST-RESEARCH-ORIGINAL")
         self.assertEqual(snapshot["card"], "TEST-RESEARCH-CARD-UNCHANGED")
+
+    def test_research_document_only_change_updates_parent_audit(self):
+        user, password = create_authorized_user(["editar_investigacion"])
+        _, access = login_test_user(self.client, user, password)
+        piece, module = self.create_research_piece(
+            inventory_number="TEST-INVENTORY-RESEARCH-DOCUMENT-001"
+        )
+        before = self.initialize_research(piece, access)
+        history_count = self.mongo.connect(
+            "research_changes_history"
+        ).count_documents({"research_id": before["_id"]})
+        document_content = b"TEST-RESEARCH-DOCUMENT-CONTENT"
+        document_file = SimpleUploadedFile(
+            "test-research-document.txt",
+            document_content,
+            content_type="text/plain",
+        )
+        payload = self.research_edit_payload({})
+        payload["DocumentsNew"] = json.dumps(
+            [{"name": "TEST-RESEARCH-DOCUMENT"}]
+        )
+        payload["files[new_doc_0]"] = document_file
+
+        response = self.submit_research_payload(piece, access, payload)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data, {"ok": True, "message": "msg1ok"})
+        document = self.mongo.connect("documents").find_one(
+            {
+                "piece_id": piece["_id"],
+                "module_id": module["_id"],
+                "name": "TEST-RESEARCH-DOCUMENT",
+            }
+        )
+        self.assertIsNotNone(document)
+        self.assertEqual(document["size"], len(document_content))
+        self.assertEqual(document["created_by"], user["_id"])
+        after = self.mongo.connect("researchs").find_one({"_id": before["_id"]})
+        self.assert_research_parent_audit(before, after, user)
+        self.assertEqual(after["title"], before["title"])
+        self.assertEqual(
+            self.mongo.connect("research_changes_history").count_documents(
+                {"research_id": before["_id"]}
+            ),
+            history_count + 1,
+        )
+
+    def test_research_bibliography_only_change_updates_parent_audit(self):
+        user, password = create_authorized_user(["editar_investigacion"])
+        _, access = login_test_user(self.client, user, password)
+        piece, _ = self.create_research_piece(
+            inventory_number="TEST-INVENTORY-RESEARCH-BIBLIOGRAPHY-001"
+        )
+        before = self.initialize_research(piece, access)
+        history_count = self.mongo.connect(
+            "research_changes_history"
+        ).count_documents({"research_id": before["_id"]})
+        reference_type_id = ObjectId()
+        payload = self.research_edit_payload({})
+        payload["NewBibliographies"] = json.dumps(
+            [
+                {
+                    "_id": None,
+                    "reference_type_info": [{"_id": str(reference_type_id)}],
+                    "title": "TEST-RESEARCH-BIBLIOGRAPHY",
+                    "author": "TEST-RESEARCH-AUTHOR",
+                }
+            ]
+        )
+
+        response = self.submit_research_payload(piece, access, payload)
+
+        self.assertEqual(response.status_code, 200)
+        bibliography = self.mongo.connect("bibliographies").find_one(
+            {
+                "research_id": before["_id"],
+                "title": "TEST-RESEARCH-BIBLIOGRAPHY",
+            }
+        )
+        self.assertIsNotNone(bibliography)
+        self.assertEqual(bibliography["reference_type_id"], reference_type_id)
+        self.assertEqual(bibliography["created_by"], user["_id"])
+        after = self.mongo.connect("researchs").find_one({"_id": before["_id"]})
+        self.assert_research_parent_audit(before, after, user)
+        self.assertEqual(after["card"], before["card"])
+        self.assertEqual(
+            self.mongo.connect("research_changes_history").count_documents(
+                {"research_id": before["_id"]}
+            ),
+            history_count + 1,
+        )
+
+    def test_research_footnote_only_change_updates_parent_audit(self):
+        user, password = create_authorized_user(["editar_investigacion"])
+        _, access = login_test_user(self.client, user, password)
+        piece, _ = self.create_research_piece(
+            inventory_number="TEST-INVENTORY-RESEARCH-FOOTNOTE-001"
+        )
+        before = self.initialize_research(piece, access)
+        history_count = self.mongo.connect(
+            "research_changes_history"
+        ).count_documents({"research_id": before["_id"]})
+        payload = self.research_edit_payload({})
+        payload["NewFootnotes"] = json.dumps(
+            [
+                {
+                    "_id": None,
+                    "title": "TEST-RESEARCH-FOOTNOTE",
+                    "description": "TEST-RESEARCH-FOOTNOTE-DESCRIPTION",
+                }
+            ]
+        )
+
+        response = self.submit_research_payload(piece, access, payload)
+
+        self.assertEqual(response.status_code, 200)
+        footnote = self.mongo.connect("footnotes").find_one(
+            {
+                "research_id": before["_id"],
+                "title": "TEST-RESEARCH-FOOTNOTE",
+            }
+        )
+        self.assertIsNotNone(footnote)
+        self.assertEqual(
+            footnote["description"],
+            "TEST-RESEARCH-FOOTNOTE-DESCRIPTION",
+        )
+        self.assertEqual(footnote["created_by"], user["_id"])
+        after = self.mongo.connect("researchs").find_one({"_id": before["_id"]})
+        self.assert_research_parent_audit(before, after, user)
+        self.assertEqual(after["title"], before["title"])
+        self.assertEqual(
+            self.mongo.connect("research_changes_history").count_documents(
+                {"research_id": before["_id"]}
+            ),
+            history_count + 1,
+        )
+
+    def test_research_photograph_only_change_updates_parent_audit(self):
+        user, password = create_authorized_user(["editar_investigacion"])
+        _, access = login_test_user(self.client, user, password)
+        piece, module = self.create_research_piece(
+            inventory_number="TEST-INVENTORY-RESEARCH-PHOTOGRAPH-001"
+        )
+        before = self.initialize_research(piece, access)
+        history_count = self.mongo.connect(
+            "research_changes_history"
+        ).count_documents({"research_id": before["_id"]})
+        image_buffer = BytesIO()
+        Image.new("RGB", (2, 2), color="white").save(image_buffer, format="PNG")
+        image_content = image_buffer.getvalue()
+        image_file = SimpleUploadedFile(
+            "test-research-photograph.png",
+            image_content,
+            content_type="image/png",
+        )
+        payload = self.research_edit_payload({})
+        payload["PicsNew"] = json.dumps(
+            [
+                {
+                    "photographer": "TEST-RESEARCH-PHOTOGRAPHER",
+                    "photographed_at": "2026-08-27T12:00:00",
+                    "description": "TEST-RESEARCH-PHOTOGRAPH",
+                    "size": len(image_content),
+                    "mime_type": "image/png",
+                }
+            ]
+        )
+        payload["files[new_img_0]"] = image_file
+
+        response = self.submit_research_payload(piece, access, payload)
+
+        self.assertEqual(response.status_code, 200)
+        photograph = self.mongo.connect("photographs").find_one(
+            {
+                "piece_id": piece["_id"],
+                "module_id": module["_id"],
+                "description": "TEST-RESEARCH-PHOTOGRAPH",
+            }
+        )
+        self.assertIsNotNone(photograph)
+        self.assertEqual(photograph["created_by"], user["_id"])
+        self.assertTrue(
+            os.path.isfile(
+                os.path.join(
+                    self.research_photo_directory,
+                    photograph["file_name"],
+                )
+            )
+        )
+        after = self.mongo.connect("researchs").find_one({"_id": before["_id"]})
+        self.assert_research_parent_audit(before, after, user)
+        self.assertEqual(after["card"], before["card"])
+        self.assertEqual(
+            self.mongo.connect("research_changes_history").count_documents(
+                {"research_id": before["_id"]}
+            ),
+            history_count + 1,
+        )
+
+    def test_research_empty_patch_does_not_change_audit_or_history(self):
+        user, password = create_authorized_user(["editar_investigacion"])
+        _, access = login_test_user(self.client, user, password)
+        piece, _ = self.create_research_piece(
+            inventory_number="TEST-INVENTORY-RESEARCH-NOOP-001"
+        )
+        before = self.initialize_research(piece, access)
+        history_count = self.mongo.connect(
+            "research_changes_history"
+        ).count_documents({"research_id": before["_id"]})
+
+        response = self.submit_research_edit(piece, access, {})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data, {"ok": True, "message": "msg1ok"})
+        after = self.mongo.connect("researchs").find_one({"_id": before["_id"]})
+        self.assertEqual(after, before)
+        self.assertEqual(
+            self.mongo.connect("research_changes_history").count_documents(
+                {"research_id": before["_id"]}
+            ),
+            history_count,
+        )
 
     def test_research_edit_without_permission_cannot_create_or_update(self):
         viewer, viewer_password = create_authorized_user(["ver_investigacion"])

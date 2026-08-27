@@ -401,12 +401,47 @@ class ResearchEdit(APIView):
                         session =            session
                     )
 
-                    if changes or data_pics:
+                    has_research_or_picture_payload = bool(changes or data_pics)
+                    has_inventory_changes = any(
+                        key in self.inventory_fields for key in changes
+                    )
+                    if has_research_or_picture_payload:
                         self.process_inventory_data(ctx_re_inv)
-                        result = self.save_research_changes(ctx_res)
+                        result, has_picture_changes = self.save_research_changes(
+                            ctx_res
+                        )
 
                     else:
-                        result = SimpleNamespace(modified_count=0)            
+                        result = SimpleNamespace(modified_count=0)
+                        has_picture_changes = False
+
+                    has_research_changes = result.modified_count > 0
+                    has_auxiliary_changes = any(
+                        (
+                            ids_saved_footnotes,
+                            ids_updated_footnotes,
+                            ids_saved_bibliographies,
+                            ids_updated_bibliographies,
+                            self.has_meaningful_data(documents),
+                        )
+                    )
+                    has_effective_changes = (
+                        is_new_research
+                        or has_research_changes
+                        or has_inventory_changes
+                        or has_picture_changes
+                        or has_auxiliary_changes
+                    )
+
+                    if has_effective_changes and not is_new_research:
+                        self.update_research_audit(
+                            research["_id"], ObjectId(user_id), mongo, session
+                        )
+
+                    if has_research_or_picture_payload or (
+                        has_effective_changes and not is_new_research
+                    ):
+                        self._refresh_changes_in_db(ObjectId(_id), mongo, session)
                     
                     
                     ctx_history = HistoryChangesContext(
@@ -431,7 +466,8 @@ class ResearchEdit(APIView):
                     )
      
                     
-                    save_history_changes(ctx_history)
+                    if has_effective_changes:
+                        save_history_changes(ctx_history)
             
             except Exception as e:       
                 # Si hubo error dentro del with start_transaction
@@ -452,6 +488,24 @@ class ResearchEdit(APIView):
 
     def get_json_data(self, request, key, default={}):
         return json.loads(request.data.get(key, default))
+
+    @staticmethod
+    def has_meaningful_data(value):
+        if isinstance(value, dict):
+            return any(
+                ResearchEdit.has_meaningful_data(item) for item in value.values()
+            )
+        if isinstance(value, (list, tuple, set)):
+            return any(ResearchEdit.has_meaningful_data(item) for item in value)
+        return value is not None and value != ""
+
+    def update_research_audit(self, research_id, user_id, mongo, session):
+        audit_data = AuditManager().add_updateInfo({}, user_id)
+        return mongo.connect("researchs").update_one(
+            {"_id": research_id},
+            {"$set": audit_data},
+            session=session,
+        )
 
     def process_changes(self, request, key):
         changes = self.get_json_data(request, key)
@@ -515,18 +569,14 @@ class ResearchEdit(APIView):
         #research = mongo.connect("researchs").find_one({"piece_id": ObjectId(_id), "deleted_at": None} ,session=session)
 
         researchData = format_research_data(changes, self.inventory_fields )
-        # Agregar auditoría de actualización solamente a investigaciones existentes.
-        if not is_new_research:
-            researchData = AuditManager().add_updateInfo(
-                researchData, ObjectId(user_id)
-            )
         print("researchData", researchData)
         # Aplicar actualización
         result = mongo.connect("researchs").update_one({"_id": research["_id"]}, {"$set": ResearchSchema(**researchData).model_dump(exclude_none=True)}, session=session)       
-        self._process_all_pics(data_pics, user_id, _id, mongo, session)
-        self._refresh_changes_in_db(_id, mongo, session)
+        has_picture_changes = self._process_all_pics(
+            data_pics, user_id, _id, mongo, session
+        )
 
-        return result    
+        return result, has_picture_changes
     
     def _refresh_changes_in_db(self, _id, mongo, session):
         piece = mongo.connect("pieces")
@@ -547,21 +597,33 @@ class ResearchEdit(APIView):
         #mongo.checkAndDropIfExistCollection("pieces_search_serialized")
             
     def _process_all_pics(self, data_pics, user_id, _id, mongo, session):
+        has_changes = False
         if data_pics.get("new_pics"):
             print("new_pics", data_pics["new_pics"])            
-            self.process_new_pics(data_pics, user_id, _id, mongo, session)        
+            has_changes = (
+                self.process_new_pics(data_pics, user_id, _id, mongo, session)
+                or has_changes
+            )
         
         if data_pics.get("changed_pics"):
             print("changed_pics", data_pics["changed_pics"])
-            self.process_changed_pics(data_pics, user_id, mongo, session)
+            has_changes = (
+                self.process_changed_pics(data_pics, user_id, mongo, session)
+                or has_changes
+            )
 
 
         if data_pics.get("changes_pics_inputs"):
             print("changes_pics_inputs", data_pics["changes_pics_inputs"])
-            self.process_changed_pics_inputs(data_pics, user_id, mongo, session )
+            has_changes = (
+                self.process_changed_pics_inputs(data_pics, user_id, mongo, session)
+                or has_changes
+            )
                 # Aquí podrías procesar los cambios de entradas de fotos si es necesario
+        return has_changes
+
     def process_new_pics(self, cursor_change, user_id, _id, mongo, session):
-        
+        has_changes = False
         try:
             moduleId = get_module_id("research", mongo)   
             #print("cursor_change", cursor_change)
@@ -570,16 +632,17 @@ class ResearchEdit(APIView):
                     # este es el objeto como debe ser guardado en la base, su shema.                                                             
                     result = mongo.connect("photographs").insert_one(PhotographSchema(**format_new_pic(pic, user_id, moduleId, _id)).model_dump(), session=session)                
                     pic["_id"] = result.inserted_id
+                    has_changes = True
                     process_thumbnail(pic, "research")               
         except Exception as e:
             print(f"Error al procesar nuevas fotos: {e}")
             # Habra errores en caso de falta de permisos o que no exista la carpeta
             # se debe corregir el error ya que no se puede guardar
-            return e
+        return has_changes
         
    
     def process_changed_pics(self, cursor_change, user_id, mongo, session):
-        
+        has_changes = False
         try:
             #moduleId = get_module_id("research", mongo)
             #print("cursor_change", cursor_change["changed_pics"])
@@ -589,16 +652,18 @@ class ResearchEdit(APIView):
                     session=session
                 )
                 add_delete_to_actual_photo_file_name(photo_cursor["file_name"], "research")                
-                store_pic_changes(pic, user_id, mongo, session)                
+                result = store_pic_changes(pic, user_id, mongo, session)
+                has_changes = result.modified_count > 0 or has_changes
                 process_thumbnail(pic, "research")
                 #if cursor.modified_count > 0:
                     #print(f"Foto actualizada: {pic['_id']}")
 
         except Exception as e:
             print(f"Error al procesar fotos cambiadas: {e}")
+        return has_changes
     
     def process_changed_pics_inputs(self, cursor_change, user_id, mongo, session):      
-        
+        has_changes = False
         try:        
             for index,pic in cursor_change["changes_pics_inputs"].items():
                 audit_pic = AuditManager()
@@ -613,13 +678,15 @@ class ResearchEdit(APIView):
                 PhotographSchemaChanges = PhotographSchema(**to_update)
                 print("pic_id", pic["_id"])
                 print(PhotographSchemaChanges.model_dump(exclude_none=True))
-                mongo.connect("photographs").update_one(
+                result = mongo.connect("photographs").update_one(
                     {"_id": ObjectId(pic["_id"])},
                     {
                         "$set": PhotographSchemaChanges.model_dump(exclude_none=True),
                     },
                     session=session
                 )
+                has_changes = result.modified_count > 0 or has_changes
                 
         except Exception as e:
             print(f"Error al procesar entradas de fotos cambiadas: {e}")
+        return has_changes

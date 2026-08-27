@@ -129,7 +129,8 @@ def update_footnotes(changes_footnotes, user_id, _id, mongo, session):
                         session=session
                     )
                     print("Nota al pie actualizada:", footnote_id, "Modificaciones:", result.modified_count)
-                    ids_saved_footnotes.append(str(footnote_id))
+                    if result.modified_count > 0:
+                        ids_saved_footnotes.append(str(footnote_id))
         except Exception as e:
             print(f"Error al actualizar nota al pie: {e}")
             raise e
@@ -187,6 +188,7 @@ def update_bibliographies( changes_bibliographies, user_id, _id, mongo, session)
             )
 
             print("Bibliografía actualizada:", bib_id, "Modificaciones:", result.modified_count)
-            ids_saved_bibliographies.append(str(bib_id))
+            if result.modified_count > 0:
+                ids_saved_bibliographies.append(str(bib_id))
 
     return ids_saved_bibliographies, bibliographies_before_update
