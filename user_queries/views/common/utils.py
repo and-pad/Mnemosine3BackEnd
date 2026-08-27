@@ -4,12 +4,47 @@ import random
 import string
 import shutil
 import json
+import logging
 from bson import ObjectId
 from user_queries.driver_database.mongo import Mongo
 from ..tools import AuditManager
 from django.conf import settings
 from PIL import Image
 from user_queries.shemas.photograph_shema import PhotographSchema
+
+logger = logging.getLogger(__name__)
+
+
+def register_created_file(file_path, created_files):
+    if created_files is not None and file_path not in created_files:
+        created_files.append(file_path)
+
+
+def cleanup_request_files(created_files, moved_files):
+    for file_path in reversed(created_files):
+        try:
+            if os.path.isfile(file_path):
+                os.remove(file_path)
+            elif os.path.exists(file_path):
+                logger.error("Se omitió una ruta de cleanup que no es archivo: %s", file_path)
+        except Exception:
+            logger.exception("No se pudo eliminar el archivo nuevo %s", file_path)
+
+    for original_path, moved_path in reversed(moved_files):
+        try:
+            if not os.path.isfile(moved_path):
+                continue
+            if os.path.exists(original_path):
+                logger.error(
+                    "No se restauró %s porque la ruta original ya existe",
+                    moved_path,
+                )
+                continue
+            shutil.move(moved_path, original_path)
+        except Exception:
+            logger.exception(
+                "No se pudo restaurar el archivo preexistente %s", original_path
+            )
 
 
 def oid_list(value):
@@ -66,7 +101,7 @@ def format_new_pic( pic,user_id, moduleId, _id):
     
     
 
-def process_thumbnail(pic, module_name):
+def process_thumbnail(pic, module_name, created_files=None):
 
     if module_name == "research":
         path = settings.PHOTO_RESEARCH_PATH
@@ -75,12 +110,17 @@ def process_thumbnail(pic, module_name):
         path = settings.PHOTO_RESTORATION_PATH
         thumbnail_path = settings.THUMBNAILS_RESTORATION_PATH
 
+    destination = None
+    destination_is_new = False
     try:
         origin = os.path.join(path, pic["file_name"])
         # Creamos el thumbnail en la carpeta de thumbnails
         destination = os.path.join(
             thumbnail_path, pic["file_name"]
         )
+        if os.path.exists(destination):
+            raise FileExistsError(destination)
+        destination_is_new = True
         # Creamos el objeto Image para abrir la imagen y cambiarle el tamaño
         img = Image.open(origin)
         # Tamaño del thumbnail
@@ -90,11 +130,17 @@ def process_thumbnail(pic, module_name):
         img_thumbnail = img.resize((width_thumbnail, height_thumbnail))
         # Guardamos el thumbnail
         img_thumbnail.save(destination)
+        register_created_file(destination, created_files)
     except Exception as e:
+        if destination_is_new and destination and os.path.isfile(destination):
+            try:
+                os.remove(destination)
+            except Exception:
+                logger.exception("No se pudo eliminar el thumbnail incompleto %s", destination)
         print("No se pudo crear el thumbnail Error: ", e)
     
 
-def add_delete_to_actual_photo_file_name(file_name, module_name):
+def add_delete_to_actual_photo_file_name(file_name, module_name, moved_files=None):
 
     if module_name == "research":
         path = settings.PHOTO_RESEARCH_PATH
@@ -112,11 +158,19 @@ def add_delete_to_actual_photo_file_name(file_name, module_name):
     
     # Esto puede salir mal por falta de permisos, pero le hacemos una comprobacion de error y seguimos
     try:
-        shutil.move(origin, destination)
-        shutil.move(origin_thumbnail, destination_thumbnail)
+        if os.path.isfile(origin):
+            shutil.move(origin, destination)
+            if moved_files is not None:
+                moved_files.append((origin, destination))
+        if os.path.isfile(origin_thumbnail):
+            shutil.move(origin_thumbnail, destination_thumbnail)
+            if moved_files is not None:
+                moved_files.append((origin_thumbnail, destination_thumbnail))
     except Exception as e:
         print("No se pudo mover el thumbnail Error: ", e)
-def add_delete_to_actual_document_file_name(document_id, module_name):
+
+
+def add_delete_to_actual_document_file_name(document_id, module_name, moved_files=None):
     file_name = Mongo().connect("documents").find_one({"_id": ObjectId(document_id)}).get("file_name")        
 
     if module_name == "research":
@@ -126,7 +180,10 @@ def add_delete_to_actual_document_file_name(document_id, module_name):
         origin = os.path.join(settings.DOCUMENT_RESTORATION_PATH, file_name)
         destination = os.path.join(settings.DOCUMENT_RESTORATION_PATH, f"deleted_{file_name}")
     try:
-        shutil.move(origin, destination)
+        if os.path.isfile(origin):
+            shutil.move(origin, destination)
+            if moved_files is not None:
+                moved_files.append((origin, destination))
     except Exception as e:
         print("No se pudo mover el documento Error: ", e)
             

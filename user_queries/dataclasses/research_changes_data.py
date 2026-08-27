@@ -12,3 +12,5 @@ class ResearchContext:
     research: List[dict]
     mongo: Any
     session: Any
+    created_files: List[str]
+    moved_files: List[tuple[str, str]]

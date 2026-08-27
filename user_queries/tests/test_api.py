@@ -3,6 +3,7 @@ import os
 import shutil
 import tempfile
 from io import BytesIO
+from unittest.mock import patch as mock_patch
 
 from bson import ObjectId
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -208,6 +209,16 @@ class MongoAPIIntegrationTests(SimpleTestCase):
         self.assertEqual(after["updated_by"], user["_id"])
         self.assertIsNotNone(after["updated_at"])
         self.assertGreaterEqual(after["updated_at"], after["created_at"])
+
+    @staticmethod
+    def research_png_upload(filename="test-research-photograph.png"):
+        image_buffer = BytesIO()
+        Image.new("RGB", (2, 2), color="white").save(image_buffer, format="PNG")
+        content = image_buffer.getvalue()
+        return (
+            SimpleUploadedFile(filename, content, content_type="image/png"),
+            content,
+        )
 
 
     # This method is a test method executed after the setUp method, and it tests the user query API endpoint
@@ -907,14 +918,7 @@ class MongoAPIIntegrationTests(SimpleTestCase):
         history_count = self.mongo.connect(
             "research_changes_history"
         ).count_documents({"research_id": before["_id"]})
-        image_buffer = BytesIO()
-        Image.new("RGB", (2, 2), color="white").save(image_buffer, format="PNG")
-        image_content = image_buffer.getvalue()
-        image_file = SimpleUploadedFile(
-            "test-research-photograph.png",
-            image_content,
-            content_type="image/png",
-        )
+        image_file, image_content = self.research_png_upload()
         payload = self.research_edit_payload({})
         payload["PicsNew"] = json.dumps(
             [
@@ -949,6 +953,14 @@ class MongoAPIIntegrationTests(SimpleTestCase):
                 )
             )
         )
+        self.assertTrue(
+            os.path.isfile(
+                os.path.join(
+                    self.research_thumbnail_directory,
+                    photograph["file_name"],
+                )
+            )
+        )
         after = self.mongo.connect("researchs").find_one({"_id": before["_id"]})
         self.assert_research_parent_audit(before, after, user)
         self.assertEqual(after["card"], before["card"])
@@ -957,6 +969,306 @@ class MongoAPIIntegrationTests(SimpleTestCase):
                 {"research_id": before["_id"]}
             ),
             history_count + 1,
+        )
+
+    def test_research_new_photograph_is_removed_after_later_failure(self):
+        user, password = create_authorized_user(["editar_investigacion"])
+        _, access = login_test_user(self.client, user, password)
+        piece, _ = self.create_research_piece(
+            inventory_number="TEST-INVENTORY-RESEARCH-PHOTO-ROLLBACK-001"
+        )
+        research_before = self.initialize_research(piece, access)
+        history_count = self.mongo.connect(
+            "research_changes_history"
+        ).count_documents({"research_id": research_before["_id"]})
+        preexisting_photo = os.path.join(
+            self.research_photo_directory, "preexisting-photo.keep"
+        )
+        preexisting_thumbnail = os.path.join(
+            self.research_thumbnail_directory, "preexisting-thumbnail.keep"
+        )
+        with open(preexisting_photo, "xb") as file_handle:
+            file_handle.write(b"PREEXISTING_PHOTO")
+        with open(preexisting_thumbnail, "xb") as file_handle:
+            file_handle.write(b"PREEXISTING_THUMBNAIL")
+        image_file, image_content = self.research_png_upload(
+            "test-research-photo-rollback.png"
+        )
+        payload = self.research_edit_payload({})
+        payload["PicsNew"] = json.dumps(
+            [
+                {
+                    "photographer": "TEST-ROLLBACK-PHOTOGRAPHER",
+                    "photographed_at": "2026-08-27T12:00:00",
+                    "description": "TEST-ROLLBACK-PHOTOGRAPH",
+                    "size": len(image_content),
+                    "mime_type": "image/png",
+                }
+            ]
+        )
+        payload["files[new_img_0]"] = image_file
+
+        with mock_patch(
+            "user_queries.views.research_views.save_history_changes",
+            side_effect=RuntimeError("TEST_FAILURE_AFTER_PHOTO_WRITE"),
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError, "TEST_FAILURE_AFTER_PHOTO_WRITE"
+            ):
+                self.submit_research_payload(piece, access, payload)
+
+        self.assertEqual(
+            self.mongo.connect("photographs").count_documents(
+                {"piece_id": piece["_id"]}
+            ),
+            0,
+        )
+        self.assertEqual(
+            self.mongo.connect("researchs").find_one(
+                {"_id": research_before["_id"]}
+            ),
+            research_before,
+        )
+        self.assertEqual(
+            self.mongo.connect("research_changes_history").count_documents(
+                {"research_id": research_before["_id"]}
+            ),
+            history_count,
+        )
+        self.assertEqual(os.listdir(self.research_photo_directory), ["preexisting-photo.keep"])
+        self.assertEqual(
+            os.listdir(self.research_thumbnail_directory),
+            ["preexisting-thumbnail.keep"],
+        )
+
+    def test_research_new_document_is_removed_after_later_failure(self):
+        user, password = create_authorized_user(["editar_investigacion"])
+        _, access = login_test_user(self.client, user, password)
+        piece, _ = self.create_research_piece(
+            inventory_number="TEST-INVENTORY-RESEARCH-DOCUMENT-ROLLBACK-001"
+        )
+        research_before = self.initialize_research(piece, access)
+        history_count = self.mongo.connect(
+            "research_changes_history"
+        ).count_documents({"research_id": research_before["_id"]})
+        preexisting_document = os.path.join(
+            self.research_document_directory, "preexisting-document.keep"
+        )
+        with open(preexisting_document, "xb") as file_handle:
+            file_handle.write(b"PREEXISTING_DOCUMENT")
+        document_file = SimpleUploadedFile(
+            "test-research-document-rollback.txt",
+            b"TEST_DOCUMENT_CREATED_DURING_FAILED_REQUEST",
+            content_type="text/plain",
+        )
+        payload = self.research_edit_payload({})
+        payload["DocumentsNew"] = json.dumps(
+            [{"name": "TEST-ROLLBACK-DOCUMENT"}]
+        )
+        payload["files[new_doc_0]"] = document_file
+
+        with mock_patch(
+            "user_queries.views.research_views.save_history_changes",
+            side_effect=RuntimeError("TEST_FAILURE_AFTER_DOCUMENT_WRITE"),
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError, "TEST_FAILURE_AFTER_DOCUMENT_WRITE"
+            ):
+                self.submit_research_payload(piece, access, payload)
+
+        self.assertEqual(
+            self.mongo.connect("documents").count_documents(
+                {"piece_id": piece["_id"]}
+            ),
+            0,
+        )
+        self.assertEqual(
+            self.mongo.connect("researchs").find_one(
+                {"_id": research_before["_id"]}
+            ),
+            research_before,
+        )
+        self.assertEqual(
+            self.mongo.connect("research_changes_history").count_documents(
+                {"research_id": research_before["_id"]}
+            ),
+            history_count,
+        )
+        self.assertEqual(
+            os.listdir(self.research_document_directory),
+            ["preexisting-document.keep"],
+        )
+
+    def test_research_photograph_replacement_restores_old_file_after_failure(self):
+        user, password = create_authorized_user(["editar_investigacion"])
+        _, access = login_test_user(self.client, user, password)
+        piece, module = self.create_research_piece(
+            inventory_number="TEST-INVENTORY-RESEARCH-PHOTO-REPLACE-001"
+        )
+        self.initialize_research(piece, access)
+        original_file, original_content = self.research_png_upload(
+            "test-research-photo-original.png"
+        )
+        create_payload = self.research_edit_payload({})
+        create_payload["PicsNew"] = json.dumps(
+            [
+                {
+                    "photographer": "TEST-ORIGINAL-PHOTOGRAPHER",
+                    "photographed_at": "2026-08-27T12:00:00",
+                    "description": "TEST-ORIGINAL-PHOTOGRAPH",
+                    "size": len(original_content),
+                    "mime_type": "image/png",
+                }
+            ]
+        )
+        create_payload["files[new_img_0]"] = original_file
+        self.assertEqual(
+            self.submit_research_payload(piece, access, create_payload).status_code,
+            200,
+        )
+        photograph_before = self.mongo.connect("photographs").find_one(
+            {"piece_id": piece["_id"], "module_id": module["_id"]}
+        )
+        research_before = self.mongo.connect("researchs").find_one(
+            {"piece_id": piece["_id"]}
+        )
+        old_photo_path = os.path.join(
+            self.research_photo_directory, photograph_before["file_name"]
+        )
+        old_thumbnail_path = os.path.join(
+            self.research_thumbnail_directory, photograph_before["file_name"]
+        )
+        self.assertTrue(os.path.isfile(old_photo_path))
+        self.assertTrue(os.path.isfile(old_thumbnail_path))
+        replacement_file, _ = self.research_png_upload(
+            "test-research-photo-replacement.png"
+        )
+        replace_payload = self.research_edit_payload({})
+        replace_payload["ChangedPics"] = json.dumps(
+            {"0": {"_id": str(photograph_before["_id"])}}
+        )
+        replace_payload["files[changed_img_0]"] = replacement_file
+
+        with mock_patch(
+            "user_queries.views.research_views.save_history_changes",
+            side_effect=RuntimeError("TEST_FAILURE_AFTER_PHOTO_REPLACEMENT"),
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError, "TEST_FAILURE_AFTER_PHOTO_REPLACEMENT"
+            ):
+                self.submit_research_payload(piece, access, replace_payload)
+
+        self.assertEqual(
+            self.mongo.connect("photographs").find_one(
+                {"_id": photograph_before["_id"]}
+            ),
+            photograph_before,
+        )
+        self.assertEqual(
+            self.mongo.connect("researchs").find_one(
+                {"_id": research_before["_id"]}
+            ),
+            research_before,
+        )
+        self.assertTrue(os.path.isfile(old_photo_path))
+        self.assertTrue(os.path.isfile(old_thumbnail_path))
+        self.assertFalse(
+            os.path.exists(
+                os.path.join(
+                    self.research_photo_directory,
+                    f"deleted_{photograph_before['file_name']}",
+                )
+            )
+        )
+        self.assertEqual(os.listdir(self.research_photo_directory), [photograph_before["file_name"]])
+        self.assertEqual(
+            os.listdir(self.research_thumbnail_directory),
+            [photograph_before["file_name"]],
+        )
+
+    def test_research_document_replacement_restores_old_file_after_failure(self):
+        user, password = create_authorized_user(["editar_investigacion"])
+        _, access = login_test_user(self.client, user, password)
+        piece, module = self.create_research_piece(
+            inventory_number="TEST-INVENTORY-RESEARCH-DOC-REPLACE-001"
+        )
+        self.initialize_research(piece, access)
+        original_document = SimpleUploadedFile(
+            "test-research-document-original.txt",
+            b"TEST_ORIGINAL_DOCUMENT",
+            content_type="text/plain",
+        )
+        create_payload = self.research_edit_payload({})
+        create_payload["DocumentsNew"] = json.dumps(
+            [{"name": "TEST-ORIGINAL-DOCUMENT"}]
+        )
+        create_payload["files[new_doc_0]"] = original_document
+        self.assertEqual(
+            self.submit_research_payload(piece, access, create_payload).status_code,
+            200,
+        )
+        document_before = self.mongo.connect("documents").find_one(
+            {"piece_id": piece["_id"], "module_id": module["_id"]}
+        )
+        research_before = self.mongo.connect("researchs").find_one(
+            {"piece_id": piece["_id"]}
+        )
+        old_document_path = os.path.join(
+            self.research_document_directory, document_before["file_name"]
+        )
+        self.assertTrue(os.path.isfile(old_document_path))
+        replacement_document = SimpleUploadedFile(
+            "test-research-document-replacement.txt",
+            b"TEST_REPLACEMENT_DOCUMENT",
+            content_type="text/plain",
+        )
+        replace_payload = self.research_edit_payload({})
+        replace_payload["ChangesDocs"] = json.dumps(
+            {
+                "0": {
+                    "_id": str(document_before["_id"]),
+                    "name": {
+                        "oldValue": "TEST-ORIGINAL-DOCUMENT",
+                        "newValue": "TEST-REPLACEMENT-DOCUMENT",
+                    },
+                }
+            }
+        )
+        replace_payload["files[changed_doc_0]"] = replacement_document
+
+        with mock_patch(
+            "user_queries.views.research_views.save_history_changes",
+            side_effect=RuntimeError("TEST_FAILURE_AFTER_DOCUMENT_REPLACEMENT"),
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError, "TEST_FAILURE_AFTER_DOCUMENT_REPLACEMENT"
+            ):
+                self.submit_research_payload(piece, access, replace_payload)
+
+        self.assertEqual(
+            self.mongo.connect("documents").find_one(
+                {"_id": document_before["_id"]}
+            ),
+            document_before,
+        )
+        self.assertEqual(
+            self.mongo.connect("researchs").find_one(
+                {"_id": research_before["_id"]}
+            ),
+            research_before,
+        )
+        self.assertTrue(os.path.isfile(old_document_path))
+        self.assertFalse(
+            os.path.exists(
+                os.path.join(
+                    self.research_document_directory,
+                    f"deleted_{document_before['file_name']}",
+                )
+            )
+        )
+        self.assertEqual(
+            os.listdir(self.research_document_directory),
+            [document_before["file_name"]],
         )
 
     def test_research_empty_patch_does_not_change_audit_or_history(self):

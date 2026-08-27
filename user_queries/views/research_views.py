@@ -33,7 +33,8 @@ from .common.utils import (
     process_thumbnail, 
     add_delete_to_actual_photo_file_name, 
     store_pic_changes, 
-    format_research_data
+    format_research_data,
+    cleanup_request_files,
     )
 from user_queries.dataclasses.footnotes_and_bibliographies import FootnotesBibliographiesContext
 from user_queries.dataclasses.documents import DocumentsContext
@@ -303,6 +304,8 @@ class ResearchEdit(APIView):
 
     def patch(self, request, _id):
         mongo = Mongo()
+        created_files = []
+        moved_files = []
         with mongo.start_session() as session:
             try:
                 with session.start_transaction():
@@ -355,7 +358,9 @@ class ResearchEdit(APIView):
                         _id =            ObjectId(_id),
                         moduleId =       get_module_id("research", mongo),
                         mongo =          mongo,
-                        session =        session
+                        session =        session,
+                        created_files =  created_files,
+                        moved_files =    moved_files,
                     )                    
                     
                     # Procesa los documentos, guarda los archivos en el servidor,
@@ -367,6 +372,7 @@ class ResearchEdit(APIView):
                         pics_new =              pics_new,
                         changed_pics =          changed_pics,
                         changes_pics_inputs =   changes_pics_inputs,                            
+                        created_files =         created_files,
                     )
 
                     
@@ -398,7 +404,9 @@ class ResearchEdit(APIView):
                         is_new_research =    is_new_research,
                         research =           research,  
                         mongo =              mongo,
-                        session =            session
+                        session =            session,
+                        created_files =      created_files,
+                        moved_files =        moved_files,
                     )
 
                     has_research_or_picture_payload = bool(changes or data_pics)
@@ -473,6 +481,7 @@ class ResearchEdit(APIView):
                 # Si hubo error dentro del with start_transaction
                 # Mongo aborta la transacción automáticamente.
                 print(f"Error al procesar todo: {e}")
+                cleanup_request_files(created_files, moved_files)
                 raise
 
 
@@ -566,6 +575,8 @@ class ResearchEdit(APIView):
         mongo = ctx.mongo
         session = ctx.session
         research = ctx.research        
+        created_files = ctx.created_files
+        moved_files = ctx.moved_files
         #research = mongo.connect("researchs").find_one({"piece_id": ObjectId(_id), "deleted_at": None} ,session=session)
 
         researchData = format_research_data(changes, self.inventory_fields )
@@ -573,7 +584,13 @@ class ResearchEdit(APIView):
         # Aplicar actualización
         result = mongo.connect("researchs").update_one({"_id": research["_id"]}, {"$set": ResearchSchema(**researchData).model_dump(exclude_none=True)}, session=session)       
         has_picture_changes = self._process_all_pics(
-            data_pics, user_id, _id, mongo, session
+            data_pics,
+            user_id,
+            _id,
+            mongo,
+            session,
+            created_files,
+            moved_files,
         )
 
         return result, has_picture_changes
@@ -596,19 +613,37 @@ class ResearchEdit(APIView):
             )
         #mongo.checkAndDropIfExistCollection("pieces_search_serialized")
             
-    def _process_all_pics(self, data_pics, user_id, _id, mongo, session):
+    def _process_all_pics(
+        self,
+        data_pics,
+        user_id,
+        _id,
+        mongo,
+        session,
+        created_files,
+        moved_files,
+    ):
         has_changes = False
         if data_pics.get("new_pics"):
             print("new_pics", data_pics["new_pics"])            
             has_changes = (
-                self.process_new_pics(data_pics, user_id, _id, mongo, session)
+                self.process_new_pics(
+                    data_pics, user_id, _id, mongo, session, created_files
+                )
                 or has_changes
             )
         
         if data_pics.get("changed_pics"):
             print("changed_pics", data_pics["changed_pics"])
             has_changes = (
-                self.process_changed_pics(data_pics, user_id, mongo, session)
+                self.process_changed_pics(
+                    data_pics,
+                    user_id,
+                    mongo,
+                    session,
+                    created_files,
+                    moved_files,
+                )
                 or has_changes
             )
 
@@ -622,7 +657,9 @@ class ResearchEdit(APIView):
                 # Aquí podrías procesar los cambios de entradas de fotos si es necesario
         return has_changes
 
-    def process_new_pics(self, cursor_change, user_id, _id, mongo, session):
+    def process_new_pics(
+        self, cursor_change, user_id, _id, mongo, session, created_files
+    ):
         has_changes = False
         try:
             moduleId = get_module_id("research", mongo)   
@@ -633,15 +670,22 @@ class ResearchEdit(APIView):
                     result = mongo.connect("photographs").insert_one(PhotographSchema(**format_new_pic(pic, user_id, moduleId, _id)).model_dump(), session=session)                
                     pic["_id"] = result.inserted_id
                     has_changes = True
-                    process_thumbnail(pic, "research")               
+                    process_thumbnail(pic, "research", created_files)
         except Exception as e:
             print(f"Error al procesar nuevas fotos: {e}")
-            # Habra errores en caso de falta de permisos o que no exista la carpeta
-            # se debe corregir el error ya que no se puede guardar
+            raise
         return has_changes
         
    
-    def process_changed_pics(self, cursor_change, user_id, mongo, session):
+    def process_changed_pics(
+        self,
+        cursor_change,
+        user_id,
+        mongo,
+        session,
+        created_files,
+        moved_files,
+    ):
         has_changes = False
         try:
             #moduleId = get_module_id("research", mongo)
@@ -651,15 +695,18 @@ class ResearchEdit(APIView):
                     {"_id": ObjectId(pic["_id"])},
                     session=session
                 )
-                add_delete_to_actual_photo_file_name(photo_cursor["file_name"], "research")                
+                add_delete_to_actual_photo_file_name(
+                    photo_cursor["file_name"], "research", moved_files
+                )
                 result = store_pic_changes(pic, user_id, mongo, session)
                 has_changes = result.modified_count > 0 or has_changes
-                process_thumbnail(pic, "research")
+                process_thumbnail(pic, "research", created_files)
                 #if cursor.modified_count > 0:
                     #print(f"Foto actualizada: {pic['_id']}")
 
         except Exception as e:
             print(f"Error al procesar fotos cambiadas: {e}")
+            raise
         return has_changes
     
     def process_changed_pics_inputs(self, cursor_change, user_id, mongo, session):      

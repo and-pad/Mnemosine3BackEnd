@@ -12,3 +12,5 @@ class DocumentsContext:
 
     changes_docs: List[dict] = field(default_factory=list)
     new_docs: List[dict] = field(default_factory=list)
+    created_files: List[str] = field(default_factory=list)
+    moved_files: List[tuple[str, str]] = field(default_factory=list)

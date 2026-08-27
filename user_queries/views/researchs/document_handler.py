@@ -1,9 +1,11 @@
 
 
 
+import os
+
 from bson import ObjectId
 from pymongo.errors import PyMongoError
-from ..common.utils import generate_random_file_name
+from ..common.utils import generate_random_file_name, register_created_file
 from django.conf import settings
 from user_queries.driver_database.mongo import Mongo
 from ...shemas.document_shema import DocumentSchema
@@ -15,19 +17,38 @@ from user_queries.dataclasses.documents import DocumentsContext
 #hay que quitar changes de aqui
 def process_documents(ctx: DocumentsContext):
     
-    changes_history = process_changed_docs(ctx.request,ctx.changes_docs, ctx.mongo, ctx.session)
+    changes_history = process_changed_docs(
+        ctx.request,
+        ctx.changes_docs,
+        ctx.mongo,
+        ctx.session,
+        ctx.created_files,
+        ctx.moved_files,
+    )
     
-    new_docs_history = process_new_docs(ctx.request, ctx.new_docs, ctx._id, ctx.moduleId, ctx.mongo, ctx.session)   
+    new_docs_history = process_new_docs(
+        ctx.request,
+        ctx.new_docs,
+        ctx._id,
+        ctx.moduleId,
+        ctx.mongo,
+        ctx.session,
+        ctx.created_files,
+    )
     
     return {"changes": changes_history, "new_docs": new_docs_history}
     
     
-def save_doc_files(file, filename):
+def save_doc_files(file, filename, created_files=None):
         
         file_path = f"{settings.DOCUMENT_RESEARCH_PATH}{filename}"
-        with open(file_path, "wb") as f:
-            for chunk in file.chunks():
-                f.write(chunk)
+        try:
+            with open(file_path, "xb") as f:
+                for chunk in file.chunks():
+                    f.write(chunk)
+        finally:
+            if os.path.isfile(file_path):
+                register_created_file(file_path, created_files)
 
 def save_to_db(file, filename, name, _id, moduleId, user_id, mongo, session):
     """
@@ -154,7 +175,9 @@ def update_to_db(meta, user_id, mongo, session, file=None, filename=None):
         raise PyMongoError(f"Error al actualizar el documento en MongoDB: {e}")
 
 
-def process_new_docs(request, new_docs, _id, moduleId, mongo, session):
+def process_new_docs(
+    request, new_docs, _id, moduleId, mongo, session, created_files=None
+):
     """
     Procesa y guarda documentos nuevos asociados a una pieza.
     Si falla la inserción en la DB, aborta todo el proceso.
@@ -180,7 +203,7 @@ def process_new_docs(request, new_docs, _id, moduleId, mongo, session):
                 filename = generate_random_file_name(file.name)
 
                 # Guardar el archivo físicamente
-                save_doc_files(file, filename)
+                save_doc_files(file, filename, created_files)
 
                 # Guardar en la base de datos (si falla, aborta todo)
                 doc_saved = save_to_db(
@@ -193,7 +216,14 @@ def process_new_docs(request, new_docs, _id, moduleId, mongo, session):
             
 
 
-def process_changed_docs(request, changes_docs, mongo, session):
+def process_changed_docs(
+    request,
+    changes_docs,
+    mongo,
+    session,
+    created_files=None,
+    moved_files=None,
+):
     """
     Procesa documentos modificados, actualizando su información en la base de datos
     y reemplazando archivos si se proporcionan.
@@ -232,10 +262,12 @@ def process_changed_docs(request, changes_docs, mongo, session):
                 # Generar nombre aleatorio y guardar archivo físicamente
                 print("file", file)
                 filename = generate_random_file_name(file.name)
-                save_doc_files(file, filename)
+                save_doc_files(file, filename, created_files)
 
                 # Marcar el archivo anterior como eliminado si aplica
-                add_delete_to_actual_document_file_name(meta["_id"], "research")
+                add_delete_to_actual_document_file_name(
+                    meta["_id"], "research", moved_files
+                )
 
                 # Actualizar documento en DB
                 changed_documents = update_to_db(meta, ObjectId(request.user.id), mongo, session, file, filename)
@@ -259,6 +291,3 @@ def process_changed_docs(request, changes_docs, mongo, session):
             )
 
     return changed_documents
-
-    
-    

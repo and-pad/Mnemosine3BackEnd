@@ -7,3 +7,4 @@ class PicturesContext:
     pics_new: List[dict] = field(default_factory=list)
     changed_pics: Dict[str, dict] = field(default_factory=dict)
     changes_pics_inputs: List[dict] = field(default_factory=list)
+    created_files: List[str] = field(default_factory=list)

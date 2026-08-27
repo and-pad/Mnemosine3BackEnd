@@ -1,6 +1,8 @@
 
+import os
+
 from bson import ObjectId
-from ..common.utils import generate_random_file_name
+from ..common.utils import generate_random_file_name, register_created_file
 from django.conf import settings
 #import mongo
 #from user_queries.driver_database.mongo import Mongo
@@ -27,7 +29,7 @@ def process_pictures(ctx: PicturesContext):
                     }
                 )
                 
-                save_image_files(file, filename)
+                save_image_files(file, filename, ctx.created_files)
                         
         
         if ctx.changes_pics_inputs and len(ctx.changes_pics_inputs) > 0:
@@ -43,7 +45,7 @@ def process_pictures(ctx: PicturesContext):
                     # Generate a random file name
                     filename = generate_random_file_name(file.name)
                     # Save the file temporarily
-                    save_image_files(file, filename)
+                    save_image_files(file, filename, ctx.created_files)
                     # Append file details to saved_files
                     data.setdefault("changed_pics", []).append(
                         {
@@ -60,15 +62,20 @@ def process_pictures(ctx: PicturesContext):
                     print(
                         f"Error: is not possible to create the file, check the file permissions or the path: {e}"
                     )
+                    raise
         return data
                     
                     
                     
-def save_image_files(file, filename):
+def save_image_files(file, filename, created_files=None):
         file_path = f"{settings.PHOTO_RESEARCH_PATH}{filename}"
-        with open(file_path, "wb") as f:
-            for chunk in file.chunks():
-                f.write(chunk)
+        try:
+            with open(file_path, "xb") as f:
+                for chunk in file.chunks():
+                    f.write(chunk)
+        finally:
+            if os.path.isfile(file_path):
+                register_created_file(file_path, created_files)
 """
 def save_image_inputs(request, changes_pics_inputs):
     mongo = Mongo()    
@@ -77,5 +84,3 @@ def save_image_inputs(request, changes_pics_inputs):
         for element in pic:
             print("element", element)
 """
-    
-    
