@@ -1,5 +1,7 @@
 from bson import ObjectId
 
+from authentication.role_views import MODEL_TYPE_USER
+
 def getPermissions(user):
     user_id = user.id if hasattr(user, "id") else user["_id"]
     permissions = [
@@ -31,8 +33,19 @@ def getPermissions(user):
             {
                 '$lookup':{
                     'from': 'user_has_permissions',
-                    'localField': 'model_id',
-                    'foreignField': 'model_id',
+                    'let': {'model_id': '$model_id'},
+                    'pipeline': [
+                        {
+                            '$match': {
+                                '$expr': {
+                                    '$and': [
+                                        {'$eq': ['$model_id', '$$model_id']},
+                                        {'$eq': ['$model_type', MODEL_TYPE_USER]},
+                                    ]
+                                }
+                            }
+                        }
+                    ],
                     'as': 'user_has_permissions_info'
                 }                
             },   

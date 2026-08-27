@@ -1,10 +1,15 @@
 
+import os
+
 import pymongo
 from django.conf import settings
 class Mongo: #En estas entradas del contsructor puedes poner tu usuario y password de desarrollo :)
     def __init__(self, *args, **kwargs):
         #db_name = "Mnemosine", user_name = "usuario1", password = "123456", port = "27017"
-        self.db_name = kwargs.get("db_name", settings.MONGO_DB_NAME)
+        self.db_name = kwargs.get(
+            "db_name",
+            os.environ.get("MONGO_DATABASE") or settings.MONGO_DB_NAME,
+        )
         self.user = kwargs.get("user_name", settings.MONGO_USER_NAME)
         self.password = kwargs.get("password", settings.MONGO_PASSWORD)
         self.port = kwargs.get("port", settings.MONGO_PORT)
@@ -55,4 +60,3 @@ class Mongo: #En estas entradas del contsructor puedes poner tu usuario y passwo
         
     def start_session(self):
         return self.client.start_session()
-        

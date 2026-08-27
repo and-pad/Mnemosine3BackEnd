@@ -74,28 +74,27 @@ class Permission:
         collection = mongo.connect("user_has_roles")
         cursor = collection.aggregate(getPermissions(user))
 
-        # Almacenar el resultado en una lista
-        results = list(cursor)
-        for item in results:
-            permissions_info = item["permissions_info"]
-            overwrite_permissions_info = item["overwrite_permissions_info"]
-            for overwrite_perm in overwrite_permissions_info:
-                # Verificar si el permiso ya existe
-                for i, perm in enumerate(permissions_info):
-                    if perm["id"] == overwrite_perm["id"]:
-                        permissions_info[i] = overwrite_perm  # Sobrescribir
-                        break
-                    else:
-                        if overwrite_perm not in permissions_info:
-                            permissions_info.append(
-                                overwrite_perm
-                            )  # Agregar si no existe
+        permissions_by_id = {}
+        overwrite_permissions_by_id = {}
 
-            names = [perm["name"] for perm in permissions_info]
+        for item in cursor:
+            for permission in item.get("permissions_info", []):
+                permissions_by_id[permission["id"]] = permission
 
-            # names = ['ver_usuarios', 'ver_roles', 'ver_catalogos', 'ver_configuraciones']
-            # print(names)
-            return names
+            for overwrite_permission in item.get("overwrite_permissions_info", []):
+                overwrite_permissions_by_id[overwrite_permission["id"]] = (
+                    overwrite_permission
+                )
+
+        # Los permisos directos del usuario sustituyen a los heredados que
+        # comparten el mismo id y se agregan cuando ese id no existía.
+        permissions_by_id.update(overwrite_permissions_by_id)
+
+        return list(
+            dict.fromkeys(
+                permission["name"] for permission in permissions_by_id.values()
+            )
+        )
 
 
 class signinView(APIView):

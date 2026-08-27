@@ -1,4 +1,4 @@
-name: Deploy backend
+name: Test and deploy backend
 
 on:
   push:
@@ -11,9 +11,124 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  test:
+    name: Backend integration tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create Django settings
+        shell: bash
+        run: |
+          cp MnemosineV3_0/settings.example.py MnemosineV3_0/settings.py
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Start MongoDB
+        shell: bash
+        run: |
+          docker run -d \
+            --name mongo-test \
+            -p 27017:27017 \
+            mongo:8 \
+            mongod \
+              --replSet rs0 \
+              --bind_ip_all
+
+      - name: Wait for MongoDB
+        shell: bash
+        run: |
+          for i in {1..30}; do
+            if docker exec mongo-test \
+              mongosh --quiet \
+              --eval 'db.adminCommand("ping").ok' \
+              | grep -q 1; then
+              echo "MongoDB is ready"
+              exit 0
+            fi
+
+            echo "Waiting for MongoDB..."
+            sleep 2
+          done
+
+          echo "MongoDB failed to start"
+          docker logs mongo-test
+          exit 1
+
+      - name: Initialize MongoDB replica set
+        shell: bash
+        run: |
+          docker exec mongo-test mongosh --quiet --eval '
+            rs.initiate({
+              _id: "rs0",
+              members: [
+                {
+                  _id: 0,
+                  host: "localhost:27017"
+                }
+              ]
+            })
+          '
+
+      - name: Wait for replica set primary
+        shell: bash
+        run: |
+          for i in {1..30}; do
+            STATE=$(docker exec mongo-test \
+              mongosh --quiet \
+              --eval 'db.hello().isWritablePrimary')
+
+            if echo "$STATE" | grep -q true; then
+              echo "Replica set PRIMARY is ready"
+              exit 0
+            fi
+
+            echo "Waiting for replica set PRIMARY..."
+            sleep 2
+          done
+
+          echo "Replica set failed to become PRIMARY"
+          docker logs mongo-test
+          exit 1
+
+      - name: Create MongoDB test user
+        shell: bash
+        run: |
+          docker exec mongo-test mongosh --quiet --eval '
+            db.getSiblingDB("admin").createUser({
+              user: "usuario1",
+              pwd: "123456",
+              roles: [
+                {
+                  role: "root",
+                  db: "admin"
+                }
+              ]
+            })
+          '
+
+      - name: Run Django integration tests
+        shell: bash
+        env:
+          MONGO_DATABASE: Mnemosine_test
+        run: |
+          python3 manage.py test
+
   deploy:
     name: Deploy backend to server
     runs-on: ubuntu-latest
+    needs: test
 
     steps:
       - name: Configure SSH
