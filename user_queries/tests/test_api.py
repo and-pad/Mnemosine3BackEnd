@@ -107,6 +107,52 @@ class MongoAPIIntegrationTests(SimpleTestCase):
             **self.authorization(access),
         )
 
+    def create_research_piece(
+        self,
+        *,
+        inventory_number="TEST-INVENTORY-RESEARCH-001",
+    ):
+        module = {
+            "_id": ObjectId(),
+            "name": "research",
+            "deleted_at": None,
+        }
+        self.mongo.connect("modules").insert_one(module)
+
+        piece = {
+            "_id": ObjectId(),
+            "inventory_number": inventory_number,
+            "origin_number": "TEST-RESEARCH-ORIGIN",
+            "catalog_number": "TEST-RESEARCH-CATALOG",
+            "tags": "TEST_RESEARCH_PIECE",
+            "deleted_at": None,
+        }
+        self.mongo.connect("pieces").insert_one(piece)
+        return piece, module
+
+    @staticmethod
+    def research_edit_payload(changes):
+        return {
+            "Changes": json.dumps(changes),
+            "PicsNew": json.dumps([]),
+            "ChangedPics": json.dumps({}),
+            "ChangesPicsInputs": json.dumps([]),
+            "NewFootnotes": json.dumps([]),
+            "NewBibliographies": json.dumps([]),
+            "ChangesBibliographies": json.dumps([]),
+            "ChangesFootnotes": json.dumps([]),
+            "DocumentsNew": json.dumps([]),
+            "ChangesDocs": json.dumps([]),
+        }
+
+    def submit_research_edit(self, piece, access, changes):
+        return self.client.patch(
+            f"/authenticated/piece_researchs/edit/{piece['_id']}/",
+            self.research_edit_payload(changes),
+            format="multipart",
+            **self.authorization(access),
+        )
+
 
     # This method is a test method executed after the setUp method, and it tests the user query API endpoint
     def test_user_query_all_initial_code_returns_prepared_piece_and_new_code(self):
@@ -201,6 +247,7 @@ class MongoAPIIntegrationTests(SimpleTestCase):
             {"new_piece.inventory_number": "TEST-INVENTORY-POST-001"}
         )
         self.assertIsNotNone(pending)
+        self.assertIsInstance(pending["created_by"], ObjectId)
         self.assertEqual(pending["new_piece"]["origin_number"], "TEST-ORIGIN-POST-001")
         self.assertEqual(pending["new_piece"]["catalog_number"], "TEST-CATALOG-POST-001")
         self.assertEqual(pending["created_by"], user["_id"])
@@ -347,7 +394,9 @@ class MongoAPIIntegrationTests(SimpleTestCase):
             {"_id": pending["_id"]}
         )
         self.assertEqual(decided["approved_rejected"], "approved")
-        self.assertEqual(decided["approved_rejected_by"], str(approver["_id"]))
+        self.assertIsInstance(decided["approved_rejected_by"], ObjectId)
+        self.assertEqual(decided["approved_rejected_by"], approver["_id"])
+        self.assertIsInstance(decided["created_by"], ObjectId)
         self.assertEqual(decided["created_by"], editor["_id"])
         self.assertEqual(decided["changed_by_module_id"], module["_id"])
         self.assertEqual(decided["created_at"], pending["created_at"])
@@ -424,7 +473,9 @@ class MongoAPIIntegrationTests(SimpleTestCase):
             {"_id": pending["_id"]}
         )
         self.assertEqual(decided["approved_rejected"], "rejected")
-        self.assertEqual(decided["approved_rejected_by"], str(reviewer["_id"]))
+        self.assertIsInstance(decided["approved_rejected_by"], ObjectId)
+        self.assertEqual(decided["approved_rejected_by"], reviewer["_id"])
+        self.assertIsInstance(decided["created_by"], ObjectId)
         self.assertNotIn("piece_before_changes", decided)
         self.assertIsNone(
             self.mongo.connect("inventory_change_approvals").find_one(
@@ -491,6 +542,265 @@ class MongoAPIIntegrationTests(SimpleTestCase):
         )
         self.assertIsNone(still_pending["approved_rejected"])
         self.assertIsNone(still_pending["approved_rejected_by"])
+
+    def test_research_edit_creates_research_for_piece_when_none_exists(self):
+        user, password = create_authorized_user(["editar_investigacion"])
+        login_response, access = login_test_user(self.client, user, password)
+        self.assertEqual(
+            login_response.data["permissions"],
+            ["editar_investigacion"],
+        )
+        piece, _ = self.create_research_piece()
+        self.assertEqual(
+            self.mongo.connect("researchs").count_documents(
+                {"piece_id": piece["_id"]}
+            ),
+            0,
+        )
+
+        response = self.submit_research_edit(
+            piece,
+            access,
+            {
+                "title": {
+                    "oldValue": None,
+                    "newValue": "TEST-RESEARCH-ORIGINAL",
+                },
+                "observation": {
+                    "oldValue": None,
+                    "newValue": "TEST-RESEARCH-OBSERVATION-ORIGINAL",
+                },
+                "card": {
+                    "oldValue": None,
+                    "newValue": "TEST-RESEARCH-CARD-UNCHANGED",
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data, {"ok": True, "message": "msg1ok"})
+        researchs = list(
+            self.mongo.connect("researchs").find({"piece_id": piece["_id"]})
+        )
+        self.assertEqual(len(researchs), 1)
+        research = researchs[0]
+        self.assertEqual(research["piece_id"], piece["_id"])
+        self.assertEqual(research["title"], "TEST-RESEARCH-ORIGINAL")
+        self.assertEqual(
+            research["observation"],
+            "TEST-RESEARCH-OBSERVATION-ORIGINAL",
+        )
+        self.assertEqual(research["card"], "TEST-RESEARCH-CARD-UNCHANGED")
+        self.assertFalse(research["firm"])
+        self.assertIsNone(research["materials"])
+        self.assertEqual(research["created_by"], user["_id"])
+        self.assertIsInstance(research["created_by"], ObjectId)
+        self.assertIsNotNone(research["created_at"])
+        self.assertIsNone(research["updated_by"])
+        self.assertIsNone(research["updated_at"])
+
+        history = self.mongo.connect("research_changes_history").find_one(
+            {"research_id": research["_id"]}
+        )
+        self.assertIsNotNone(history)
+        self.assertEqual(history["created_by"], user["_id"])
+        self.assertEqual(
+            history["changes"]["title"]["newValue"],
+            "TEST-RESEARCH-ORIGINAL",
+        )
+        self.assertIn("research_before_update", history)
+        self.assertIsNone(history["research_before_update"])
+        self.assertNotIn("research_before_changes", history)
+
+    def test_research_edit_updates_existing_research_without_duplicate(self):
+        user, password = create_authorized_user(["editar_investigacion"])
+        _, access = login_test_user(self.client, user, password)
+        piece, _ = self.create_research_piece(
+            inventory_number="TEST-INVENTORY-RESEARCH-EDIT-001"
+        )
+        create_response = self.submit_research_edit(
+            piece,
+            access,
+            {
+                "title": {
+                    "oldValue": None,
+                    "newValue": "TEST-RESEARCH-ORIGINAL",
+                },
+                "observation": {
+                    "oldValue": None,
+                    "newValue": "TEST-RESEARCH-OBSERVATION-ORIGINAL",
+                },
+                "card": {
+                    "oldValue": None,
+                    "newValue": "TEST-RESEARCH-CARD-UNCHANGED",
+                },
+            },
+        )
+        self.assertEqual(create_response.status_code, 200)
+        original = self.mongo.connect("researchs").find_one(
+            {"piece_id": piece["_id"]}
+        )
+
+        update_response = self.submit_research_edit(
+            piece,
+            access,
+            {
+                "title": {
+                    "oldValue": "TEST-RESEARCH-ORIGINAL",
+                    "newValue": "TEST-RESEARCH-UPDATED",
+                },
+                "observation": {
+                    "oldValue": "TEST-RESEARCH-OBSERVATION-ORIGINAL",
+                    "newValue": "TEST-RESEARCH-OBSERVATION-UPDATED",
+                },
+            },
+        )
+
+        self.assertEqual(update_response.status_code, 200)
+        self.assertEqual(
+            update_response.data,
+            {"ok": True, "message": "msg1ok"},
+        )
+        self.assertEqual(
+            self.mongo.connect("researchs").count_documents(
+                {"piece_id": piece["_id"]}
+            ),
+            1,
+        )
+        updated = self.mongo.connect("researchs").find_one(
+            {"piece_id": piece["_id"]}
+        )
+        self.assertEqual(updated["_id"], original["_id"])
+        self.assertEqual(updated["piece_id"], piece["_id"])
+        self.assertEqual(updated["title"], "TEST-RESEARCH-UPDATED")
+        self.assertEqual(
+            updated["observation"],
+            "TEST-RESEARCH-OBSERVATION-UPDATED",
+        )
+        self.assertEqual(updated["card"], "TEST-RESEARCH-CARD-UNCHANGED")
+        self.assertEqual(updated["created_by"], user["_id"])
+        self.assertEqual(updated["created_at"], original["created_at"])
+        self.assertEqual(updated["updated_by"], user["_id"])
+        self.assertIsNotNone(updated["updated_at"])
+        self.assertGreaterEqual(updated["updated_at"], updated["created_at"])
+        self.assertEqual(
+            self.mongo.connect("research_changes_history").count_documents(
+                {"research_id": original["_id"]}
+            ),
+            2,
+        )
+        update_history = self.mongo.connect("research_changes_history").find_one(
+            {
+                "research_id": original["_id"],
+                "changes.title.newValue": "TEST-RESEARCH-UPDATED",
+            }
+        )
+        self.assertIsNotNone(update_history)
+        self.assertIn("research_before_update", update_history)
+        self.assertNotIn("research_before_changes", update_history)
+        snapshot = update_history["research_before_update"]
+        self.assertEqual(snapshot["_id"], original["_id"])
+        self.assertEqual(snapshot["piece_id"], piece["_id"])
+        self.assertEqual(snapshot["title"], "TEST-RESEARCH-ORIGINAL")
+        self.assertEqual(snapshot["card"], "TEST-RESEARCH-CARD-UNCHANGED")
+
+    def test_research_edit_without_permission_cannot_create_or_update(self):
+        viewer, viewer_password = create_authorized_user(["ver_investigacion"])
+        viewer_login, viewer_access = login_test_user(
+            self.client,
+            viewer,
+            viewer_password,
+        )
+        self.assertEqual(
+            viewer_login.data["permissions"],
+            ["ver_investigacion"],
+        )
+        piece, _ = self.create_research_piece(
+            inventory_number="TEST-INVENTORY-RESEARCH-UNAUTHORIZED-001"
+        )
+
+        create_response = self.submit_research_edit(
+            piece,
+            viewer_access,
+            {
+                "title": {
+                    "oldValue": None,
+                    "newValue": "TEST-RESEARCH-UNAUTHORIZED",
+                }
+            },
+        )
+
+        self.assertEqual(create_response.status_code, 400)
+        self.assertEqual(
+            create_response.data,
+            {
+                "ok": False,
+                "message": "No tienes permiso para crear investigaciones",
+                "detail": "No tienes permiso para crear investigaciones",
+            },
+        )
+        self.assertEqual(
+            self.mongo.connect("researchs").count_documents(
+                {"piece_id": piece["_id"]}
+            ),
+            0,
+        )
+
+        editor, editor_password = create_authorized_user(
+            ["editar_investigacion"],
+            role_name="TEST_RESEARCH_EDITOR_ROLE",
+            role_numeric_id=2,
+            permission_start_id=2,
+            email="test_research_editor@example.com",
+            username="TEST_RESEARCH_EDITOR",
+            user_numeric_id=2,
+        )
+        _, editor_access = login_test_user(self.client, editor, editor_password)
+        authorized_response = self.submit_research_edit(
+            piece,
+            editor_access,
+            {
+                "title": {
+                    "oldValue": None,
+                    "newValue": "TEST-RESEARCH-AUTHORIZED",
+                }
+            },
+        )
+        self.assertEqual(authorized_response.status_code, 200)
+        stored_before_attempt = self.mongo.connect("researchs").find_one(
+            {"piece_id": piece["_id"]}
+        )
+
+        update_response = self.submit_research_edit(
+            piece,
+            viewer_access,
+            {
+                "title": {
+                    "oldValue": "TEST-RESEARCH-AUTHORIZED",
+                    "newValue": "TEST-RESEARCH-UNAUTHORIZED-UPDATE",
+                }
+            },
+        )
+
+        self.assertEqual(update_response.status_code, 400)
+        self.assertEqual(
+            update_response.data,
+            {
+                "ok": False,
+                "message": "No tienes permiso para editar investigaciones",
+                "detail": "No tienes permiso para editar investigaciones",
+            },
+        )
+        stored_after_attempt = self.mongo.connect("researchs").find_one(
+            {"piece_id": piece["_id"]}
+        )
+        self.assertEqual(stored_after_attempt, stored_before_attempt)
+        self.assertEqual(
+            self.mongo.connect("research_changes_history").count_documents(
+                {"research_id": stored_before_attempt["_id"]}
+            ),
+            1,
+        )
 
 
     # This method is a test method executed after the setUp method, and it tests the inventory new API endpoint

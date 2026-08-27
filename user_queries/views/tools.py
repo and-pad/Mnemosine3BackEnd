@@ -52,7 +52,7 @@ class AuditManager:
             #object["updated_at"] = None
             #object["deleted_at"] = None
         #else:
-            object["research_before_changes"] = research
+            object["research_before_update"] = research
             #object["updated_by"] = user_id
             #object["updated_at"] = datetime.now(self.tz)
 

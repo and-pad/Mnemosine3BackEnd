@@ -515,9 +515,11 @@ class ResearchEdit(APIView):
         #research = mongo.connect("researchs").find_one({"piece_id": ObjectId(_id), "deleted_at": None} ,session=session)
 
         researchData = format_research_data(changes, self.inventory_fields )
-        # Siempre agregar usuario que actualizó
+        # Agregar auditoría de actualización solamente a investigaciones existentes.
         if not is_new_research:
-            researchData["updated_by"] = ObjectId(user_id)
+            researchData = AuditManager().add_updateInfo(
+                researchData, ObjectId(user_id)
+            )
         print("researchData", researchData)
         # Aplicar actualización
         result = mongo.connect("researchs").update_one({"_id": research["_id"]}, {"$set": ResearchSchema(**researchData).model_dump(exclude_none=True)}, session=session)       

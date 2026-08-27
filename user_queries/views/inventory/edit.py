@@ -489,6 +489,7 @@ class InventoryEdit(APIView):
             return self.deny_permission("No tienes permiso para autorizar cambios de inventario")
 
         user_id = request.user.id
+        reviewer_id = ObjectId(user_id)
 
         mongo = Mongo()
 
@@ -574,7 +575,7 @@ class InventoryEdit(APIView):
                         {"piece_id": ObjectId(_id), "approved_rejected": None},
                         {
                             "$set": {
-                                "approved_rejected_by": user_id,
+                                "approved_rejected_by": reviewer_id,
                                 "approved_rejected": "approved",
                             },
                             "$push": {"piece_before_changes": pieceStateBeforeChanges},
@@ -595,7 +596,7 @@ class InventoryEdit(APIView):
                         {"piece_id": ObjectId(_id), "approved_rejected": None},
                         {
                             "$set": {
-                                "approved_rejected_by": user_id,
+                                "approved_rejected_by": reviewer_id,
                                 "approved_rejected": "rejected",
                             }
                         },
