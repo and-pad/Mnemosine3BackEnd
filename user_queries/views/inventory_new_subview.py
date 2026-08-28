@@ -230,7 +230,7 @@ def process_put(request, mongo, session, cursor_change, _id):
         movements_id = 1
 
     movement_data = {
-        "movement_id": movements_id,
+        "movements_id": movements_id,
         "movement_type": "internal",
         "itinerant": False,
         "institution_ids": oid_list(institution["_id"]),

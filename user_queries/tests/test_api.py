@@ -59,12 +59,24 @@ class MongoAPIIntegrationTests(SimpleTestCase):
         self.restoration_document_directory = os.path.join(
             self.temporary_upload_directory, "restoration_documents"
         )
+        self.inventory_photo_directory = os.path.join(
+            self.temporary_upload_directory, "inventory_photos"
+        )
+        self.inventory_thumbnail_directory = os.path.join(
+            self.temporary_upload_directory, "inventory_thumbnails"
+        )
+        self.inventory_document_directory = os.path.join(
+            self.temporary_upload_directory, "inventory_documents"
+        )
         os.makedirs(self.research_photo_directory)
         os.makedirs(self.research_thumbnail_directory)
         os.makedirs(self.research_document_directory)
         os.makedirs(self.restoration_photo_directory)
         os.makedirs(self.restoration_thumbnail_directory)
         os.makedirs(self.restoration_document_directory)
+        os.makedirs(self.inventory_photo_directory)
+        os.makedirs(self.inventory_thumbnail_directory)
+        os.makedirs(self.inventory_document_directory)
         self.settings_override = override_settings(
             TEMPORARY_UPLOAD_DIRECTORY=self.temporary_upload_directory + os.sep,
             PHOTO_RESEARCH_PATH=self.research_photo_directory + os.sep,
@@ -75,6 +87,9 @@ class MongoAPIIntegrationTests(SimpleTestCase):
                 self.restoration_thumbnail_directory + os.sep
             ),
             DOCUMENT_RESTORATION_PATH=self.restoration_document_directory + os.sep,
+            PHOTO_INVENTORY_PATH=self.inventory_photo_directory + os.sep,
+            THUMBNAILS_INVENTORY_PATH=self.inventory_thumbnail_directory + os.sep,
+            DOCUMENT_INVENTORY_PATH=self.inventory_document_directory + os.sep,
         )
         self.settings_override.enable()
 
@@ -2461,6 +2476,95 @@ class MongoAPIIntegrationTests(SimpleTestCase):
         )
 
 
+
+    def create_movement_catalogs(self):
+        internal = {"_id": ObjectId(), "name": "Museo Franz Mayer", "deleted_at": None}
+        external = {"_id": ObjectId(), "name": "TEST-INSTITUTION-EXTERNAL", "deleted_at": None}
+        contact = {"_id": ObjectId(), "name": "TEST-CONTACT", "last_name": "MOVEMENT", "position": "Directora de colecciones", "institution_id": external["_id"], "deleted_at": None}
+        venue = {"_id": ObjectId(), "name": "Museo Franz Mayer", "institution_id": internal["_id"], "deleted_at": None}
+        exhibition = {"_id": ObjectId(), "name": "TEST-EXHIBITION", "institution_id": internal["_id"], "deleted_at": None}
+        self.mongo.connect("institutions").insert_many([internal, external])
+        self.mongo.connect("contacts").insert_one(contact)
+        self.mongo.connect("venues").insert_one(venue)
+        self.mongo.connect("exhibitions").insert_one(exhibition)
+        self.mongo.connect("modules").insert_one({"_id": ObjectId(), "name": "inventory", "deleted_at": None})
+        return internal, external, contact, venue, exhibition
+
+    def create_movement_piece(self, inventory_number="TEST-MOVEMENT-PIECE-001"):
+        piece = {"_id": ObjectId(), "inventory_number": inventory_number, "origin_number": "TEST-MOVEMENT-ORIGIN", "catalog_number": "TEST-MOVEMENT-CATALOG", "location_id": ObjectId(), "deleted_at": None}
+        self.mongo.connect("pieces").insert_one(piece)
+        return piece
+
+    def movement_payload(self, movement_type, internal=None, external=None, contact=None, venue=None):
+        return {"movement_type": movement_type, "itinerant": "0", "internal_institution_id": str(internal["_id"]) if internal else None, "institution_ids": [str(external["_id"])] if external else [], "contact_ids": [str(contact["_id"])] if contact else [], "guard_contact_ids": [], "exhibition_id": None, "venues": [str(venue["_id"])] if venue else [], "departure_date": "2026-08-27", "start_exposure": "2026-08-27", "end_exposure": "2026-09-27", "observations": "TEST-MOVEMENT", "paso2": "1", "p1": 1}
+
+    def create_and_select_movement(self, access, piece, payload):
+        response = self.client.post("/authenticated/movements/manage/new/", payload, format="json", **self.authorization(access))
+        self.assertEqual(response.status_code, 201)
+        movement_id = response.data["movement_id"]
+        selected = self.client.post(f"/authenticated/movements/manage/{movement_id}/pieces/", {"piece_ids": [str(piece["_id"])]}, format="json", **self.authorization(access))
+        self.assertEqual(selected.status_code, 200)
+        return self.mongo.connect("movements").find_one({"movements_id": movement_id})
+
+    def test_internal_movement_creation_and_authorization(self):
+        internal, *_ = self.create_movement_catalogs()
+        user, password = create_authorized_user(["agregar_movimientos", "editar_movimientos", "autorizar_movimientos"])
+        _, access = login_test_user(self.client, user, password)
+        piece = self.create_movement_piece()
+        movement = self.create_and_select_movement(access, piece, self.movement_payload("internal", internal=internal))
+        self.assertEqual(movement["movement_type"], "internal")
+        self.assertEqual(movement["institution_ids"], [internal["_id"]])
+        authorized = self.client.post(f"/authenticated/movements/manage/{movement['movements_id']}/authorize/", {}, format="json", **self.authorization(access))
+        self.assertEqual(authorized.status_code, 200)
+        stored = self.mongo.connect("movements").find_one({"_id": movement["_id"]})
+        self.assertEqual(stored["authorized_by_movements"], user["_id"])
+        self.assertIsInstance(stored["movements_id"], int)
+        self.assertNotIn("movement_id", stored)
+
+    def test_piece_creation_generates_initial_movement(self):
+        self.create_movement_catalogs()
+        user, password = create_authorized_user(["agregar_inventario", "autorizar_colecciones"])
+        _, access = login_test_user(self.client, user, password)
+        image_buffer = BytesIO()
+        Image.new("RGB", (2, 2), color="white").save(image_buffer, format="JPEG")
+        image_bytes = image_buffer.getvalue()
+        image = SimpleUploadedFile("test_initial_movement.jpg", image_bytes, content_type="image/jpeg")
+        changes = {"inventory_number": {"newValue": "TEST-AUTO-MOVEMENT-001"}, "origin_number": {"newValue": "TEST-AUTO-ORIGIN"}, "catalog_number": {"newValue": "TEST-AUTO-CATALOG"}, "appraisal": {"newValue": 1}}
+        response = self.client.post("/authenticated/inventory_query/new/", {"changes": json.dumps(changes), "PicsNew": json.dumps([{"photographer": "TEST", "photographed_at": "2026-08-27", "description": "TEST", "size": len(image_bytes), "mime_type": "image/jpeg"}]), "DocumentsNew": json.dumps([]), "files[new_img_0]": image}, format="multipart", **self.authorization(access))
+        self.assertEqual(response.status_code, 200)
+        pending = self.mongo.connect("inventory_change_approvals").find_one({"new_piece.inventory_number": "TEST-AUTO-MOVEMENT-001"})
+        approved = self.client.put(f"/authenticated/inventory_query/new/{pending['_id']}/", {"isApproved": True}, format="json", **self.authorization(access))
+        self.assertEqual(approved.status_code, 201)
+        piece = self.mongo.connect("pieces").find_one({"inventory_number": "TEST-AUTO-MOVEMENT-001"})
+        movements = list(self.mongo.connect("movements").find({"pieces_ids": piece["_id"]}))
+        self.assertEqual(len(movements), 1)
+        self.assertEqual(movements[0]["movement_type"], "internal")
+        self.assertEqual(movements[0]["pieces_ids"], [piece["_id"]])
+        self.assertIsInstance(movements[0]["movements_id"], int)
+        self.assertNotIn("movement_id", movements[0])
+
+    def test_external_movement_return_flow(self):
+        _, external, contact, venue, exhibition = self.create_movement_catalogs()
+        user, password = create_authorized_user(["agregar_movimientos", "editar_movimientos", "autorizar_movimientos"])
+        _, access = login_test_user(self.client, user, password)
+        piece = self.create_movement_piece("TEST-EXTERNAL-MOVEMENT-001")
+        movement = self.create_and_select_movement(access, piece, self.movement_payload("external", external=external, contact=contact, venue=venue))
+        self.assertEqual(movement["movement_type"], "external")
+        self.assertEqual(self.client.post(f"/authenticated/movements/manage/{movement['movements_id']}/authorize/", {}, format="json", **self.authorization(access)).status_code, 200)
+        returned = self.client.post(f"/authenticated/movements/manage/{movement['movements_id']}/return-pieces/", {"piece_ids": [str(piece["_id"])], "location_id": str(exhibition["_id"]), "arrival_date": "2026-08-27"}, format="json", **self.authorization(access))
+        self.assertEqual(returned.status_code, 200)
+        stored = self.mongo.connect("movements").find_one({"_id": movement["_id"]})
+        self.assertEqual(stored["pieces_ids_arrived"], [piece["_id"]])
+        self.assertEqual(stored["arrival_location_id"], exhibition["_id"])
+        self.assertEqual(self.mongo.connect("pieces").find_one({"_id": piece["_id"]})["location_id"], exhibition["_id"])
+
+    def test_movement_creation_without_permission_is_rejected(self):
+        user, password = create_authorized_user(["ver_movimientos"])
+        _, access = login_test_user(self.client, user, password)
+        self.create_movement_piece("TEST-MOVEMENT-DENIED-001")
+        response = self.client.post("/authenticated/movements/manage/new/", {"movement_type": "external"}, format="json", **self.authorization(access))
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.mongo.connect("movements").count_documents({}), 0)
 
     # This method is executed after each test method
     def tearDown(self):
