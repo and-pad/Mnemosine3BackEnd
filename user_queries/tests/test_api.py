@@ -1442,6 +1442,102 @@ class MongoAPIIntegrationTests(SimpleTestCase):
             ["preexisting-document.keep"],
         )
 
+    def replace_research_photo(self, *, old_file_exists):
+        user, password = create_authorized_user(["editar_investigacion"])
+        _, access = login_test_user(self.client, user, password)
+        piece, module = self.create_research_piece(
+            inventory_number=(
+                "TEST-RESEARCH-REPLACE-OLD-EXISTS"
+                if old_file_exists
+                else "TEST-RESEARCH-REPLACE-OLD-MISSING"
+            )
+        )
+        self.initialize_research(piece, access)
+        old_file_name = "research-old-photo.png"
+        photograph_id = ObjectId()
+        self.mongo.connect("photographs").insert_one(
+            {
+                "_id": photograph_id,
+                "file_name": old_file_name,
+                "size": 10,
+                "mime_type": "image/png",
+                "photographer": "TEST",
+                "photographed_at": None,
+                "description": "TEST",
+                "module_id": module["_id"],
+                "piece_id": piece["_id"],
+                "deleted_at": None,
+            }
+        )
+        if old_file_exists:
+            for directory in (
+                self.research_photo_directory,
+                self.research_thumbnail_directory,
+            ):
+                Image.new("RGB", (20, 10), color="red").save(
+                    os.path.join(directory, old_file_name)
+                )
+
+        replacement_file, replacement_content = self.research_png_upload(
+            "research-replacement-photo.png"
+        )
+        payload = self.research_edit_payload({})
+        payload["ChangedPics"] = json.dumps(
+            {"0": {"_id": str(photograph_id)}}
+        )
+        payload["files[changed_img_0]"] = replacement_file
+        response = self.submit_research_payload(piece, access, payload)
+
+        photograph = self.mongo.connect("photographs").find_one(
+            {"_id": photograph_id}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertNotEqual(photograph["file_name"], old_file_name)
+        self.assertEqual(photograph["size"], len(replacement_content))
+        self.assertEqual(photograph["mime_type"], "image/png")
+        self.assertTrue(
+            os.path.isfile(
+                os.path.join(
+                    self.research_photo_directory, photograph["file_name"]
+                )
+            )
+        )
+        self.assertTrue(
+            os.path.isfile(
+                os.path.join(
+                    self.research_thumbnail_directory, photograph["file_name"]
+                )
+            )
+        )
+        return old_file_name
+
+    def test_research_photo_replacement_succeeds_when_old_file_is_missing(self):
+        old_file_name = self.replace_research_photo(old_file_exists=False)
+        self.assertFalse(
+            os.path.exists(
+                os.path.join(
+                    self.research_photo_directory, f"deleted_{old_file_name}"
+                )
+            )
+        )
+
+    def test_research_photo_replacement_archives_existing_old_file(self):
+        old_file_name = self.replace_research_photo(old_file_exists=True)
+        self.assertTrue(
+            os.path.isfile(
+                os.path.join(
+                    self.research_photo_directory, f"deleted_{old_file_name}"
+                )
+            )
+        )
+        self.assertTrue(
+            os.path.isfile(
+                os.path.join(
+                    self.research_thumbnail_directory, f"deleted_{old_file_name}"
+                )
+            )
+        )
+
     def test_research_photograph_replacement_restores_old_file_after_failure(self):
         user, password = create_authorized_user(["editar_investigacion"])
         _, access = login_test_user(self.client, user, password)
@@ -2412,6 +2508,79 @@ class MongoAPIIntegrationTests(SimpleTestCase):
         self.assertEqual(
             os.listdir(self.restoration_document_directory),
             [document_before["file_name"]],
+        )
+
+    def test_restoration_photo_replacement_succeeds_when_old_files_are_missing(self):
+        user, password = create_authorized_user(
+            ["agregar_restauracion", "editar_restauracion"]
+        )
+        _, access = login_test_user(self.client, user, password)
+        piece, _ = self.create_restoration_piece()
+        responsible = self.create_restoration_responsible()
+        parent_before, photograph_before, _ = self.create_restoration_with_photograph(
+            piece, access, responsible["_id"]
+        )
+        old_photo_path = os.path.join(
+            self.restoration_photo_directory, photograph_before["file_name"]
+        )
+        old_thumbnail_path = os.path.join(
+            self.restoration_thumbnail_directory, photograph_before["file_name"]
+        )
+        os.remove(old_photo_path)
+        os.remove(old_thumbnail_path)
+
+        replacement_file, replacement_content = self.research_png_upload(
+            "test-restoration-missing-old-replacement.png"
+        )
+        payload = self.restoration_empty_patch_payload()
+        payload["ChangedPics"] = json.dumps(
+            {"0": {"_id": str(photograph_before["_id"])}}
+        )
+        payload["files[changed_img_0]"] = replacement_file
+
+        response = self.submit_restoration_payload(
+            piece, parent_before, access, payload
+        )
+
+        photograph_after = self.mongo.connect("photographs").find_one(
+            {"_id": photograph_before["_id"]}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertNotEqual(
+            photograph_after["file_name"], photograph_before["file_name"]
+        )
+        self.assertEqual(photograph_after["size"], len(replacement_content))
+        self.assertEqual(photograph_after["mime_type"], "image/png")
+        self.assertTrue(
+            os.path.isfile(
+                os.path.join(
+                    self.restoration_photo_directory, photograph_after["file_name"]
+                )
+            )
+        )
+        self.assertTrue(
+            os.path.isfile(
+                os.path.join(
+                    self.restoration_thumbnail_directory,
+                    photograph_after["file_name"],
+                )
+            )
+        )
+        self.assertFalse(
+            os.path.exists(
+                os.path.join(
+                    self.restoration_photo_directory,
+                    f"deleted_{photograph_before['file_name']}",
+                )
+            )
+        )
+        self.assertFalse(
+            os.path.exists(
+                os.path.join(
+                    self.restoration_thumbnail_directory,
+                    f"deleted_{photograph_before['file_name']}",
+                )
+            )
         )
 
     def test_restoration_successful_photograph_replacement_points_to_new_file(self):

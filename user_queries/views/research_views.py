@@ -693,15 +693,24 @@ class ResearchEdit(APIView):
             for pic in cursor_change["changed_pics"]:
                 photo_cursor = mongo.connect("photographs").find_one(
                     {"_id": ObjectId(pic["_id"])},
-                    session=session
+                    session=session,
                 )
+                if photo_cursor is None:
+                    raise ValueError("The photo registry to replace does not exist")
+
+                # The new image is already safely written by process_pictures.
+                # Build its thumbnail before MongoDB points to it.
+                process_thumbnail(pic, "research", created_files, raise_on_error=True)
+                # A missing old file is recoverable, but a real move error aborts
+                # the transaction so cleanup can restore already moved files.
                 add_delete_to_actual_photo_file_name(
-                    photo_cursor["file_name"], "research", moved_files
+                    photo_cursor["file_name"],
+                    "research",
+                    moved_files,
+                    raise_on_error=True,
                 )
                 result = store_pic_changes(pic, user_id, mongo, session)
                 has_changes = result.modified_count > 0 or has_changes
-                process_thumbnail(pic, "research", created_files)
-                #if cursor.modified_count > 0:
                     #print(f"Foto actualizada: {pic['_id']}")
 
         except Exception as e:

@@ -461,15 +461,25 @@ class RestorationEdit(APIView):
                 for pic in cursor_change["changed_pics"]:
                     photo_cursor = mongo.connect("photographs").find_one(
                         {"_id": ObjectId(pic["_id"])},
-                        session=session
+                        session=session,
                     )
+                    if photo_cursor is None:
+                        raise ValueError("The photo registry to replace does not exist")
+
+                    # The replacement file is already stored by process_pictures.
+                    # Create its thumbnail before MongoDB points to it.
+                    process_thumbnail(
+                        pic, "restoration", created_files, raise_on_error=True
+                    )
+                    # Missing old files are recoverable; real move errors abort the
+                    # transaction and let cleanup restore already moved files.
                     add_delete_to_actual_photo_file_name(
-                        photo_cursor["file_name"], "restoration", moved_files
+                        photo_cursor["file_name"],
+                        "restoration",
+                        moved_files,
+                        raise_on_error=True,
                     )
                     result = store_pic_changes(pic, user_id, mongo, session)
-                    process_thumbnail(pic, "restoration", created_files)
-                    #if cursor.modified_count > 0:
-                        #print(f"Foto actualizada: {pic['_id']}")
                     if result.modified_count > 0:
                         has_changes = True
                 return has_changes
