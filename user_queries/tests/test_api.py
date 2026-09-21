@@ -8,6 +8,7 @@ from unittest.mock import patch as mock_patch
 
 from bson import ObjectId
 from pymongo.errors import DuplicateKeyError
+from django.conf import settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase, override_settings
 from PIL import Image
@@ -2590,10 +2591,10 @@ class MongoAPIIntegrationTests(SimpleTestCase):
 
 
     def create_movement_catalogs(self):
-        internal = {"_id": ObjectId(), "name": "Museo Franz Mayer", "deleted_at": None}
+        internal = {"_id": ObjectId(), "name": settings.INSTITUTION_NAME, "deleted_at": None}
         external = {"_id": ObjectId(), "name": "TEST-INSTITUTION-EXTERNAL", "deleted_at": None}
-        contact = {"_id": ObjectId(), "name": "TEST-CONTACT", "last_name": "MOVEMENT", "position": "Directora de colecciones", "institution_id": external["_id"], "deleted_at": None}
-        venue = {"_id": ObjectId(), "name": "Museo Franz Mayer", "institution_id": internal["_id"], "deleted_at": None}
+        contact = {"_id": ObjectId(), "name": "TEST-CONTACT", "last_name": "MOVEMENT", "position": settings.POSITION_NAME_NEW_INVENTORY, "institution_id": external["_id"], "deleted_at": None}
+        venue = {"_id": ObjectId(), "name": settings.INSTITUTION_NAME, "institution_id": internal["_id"], "deleted_at": None}
         exhibition = {"_id": ObjectId(), "name": "TEST-EXHIBITION", "institution_id": internal["_id"], "deleted_at": None}
         self.mongo.connect("institutions").insert_many([internal, external])
         self.mongo.connect("contacts").insert_one(contact)
