@@ -2,16 +2,19 @@ import json
 import os
 import shutil
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 from unittest.mock import patch as mock_patch
 
 from bson import ObjectId
+from pymongo.errors import DuplicateKeyError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase, override_settings
 from PIL import Image
 from rest_framework.test import APIClient
 
 from user_queries.driver_database.mongo import Mongo
+from user_queries.views.movements.base import ensure_movements_indexes, get_next_movement_id
 from user_queries.tests.helpers import (
     assign_permission_to_role,
     assign_role_to_user,
@@ -706,6 +709,115 @@ class MongoAPIIntegrationTests(SimpleTestCase):
         self.assertIsNone(
             self.mongo.connect("inventory_change_approvals").find_one(
                 {"piece_id": piece["_id"], "approved_rejected": None}
+            )
+        )
+
+    def approve_inventory_photo_replacement(self, *, old_file_exists):
+        piece, module = self.create_editable_inventory_piece(
+            inventory_number=(
+                "TEST-INVENTORY-PHOTO-OLD-EXISTS"
+                if old_file_exists
+                else "TEST-INVENTORY-PHOTO-OLD-MISSING"
+            )
+        )
+        old_file_name = "old-photo.png"
+        new_file_name = "new-photo.png"
+        photograph_id = ObjectId()
+        self.mongo.connect("photographs").insert_one(
+            {
+                "_id": photograph_id,
+                "file_name": old_file_name,
+                "size": 10,
+                "mime_type": "image/png",
+                "module_id": module["_id"],
+                "piece_id": piece["_id"],
+                "deleted_at": None,
+            }
+        )
+        if old_file_exists:
+            Image.new("RGB", (20, 10), color="red").save(
+                os.path.join(self.inventory_photo_directory, old_file_name)
+            )
+        Image.new("RGB", (40, 20), color="blue").save(
+            os.path.join(self.temporary_upload_directory, new_file_name)
+        )
+
+        self.mongo.connect("inventory_change_approvals").insert_one(
+            {
+                "piece_id": piece["_id"],
+                "created_by": ObjectId(),
+                "approved_rejected_by": None,
+                "approved_rejected": None,
+                "changed_by_module_id": module["_id"],
+                "changed_pics": [
+                    {
+                        "key": "0",
+                        "_id": photograph_id,
+                        "file_name": new_file_name,
+                        "size": 95,
+                        "mime_type": "image/png",
+                    }
+                ],
+            }
+        )
+        approver, password = create_authorized_user(["autorizar_colecciones"])
+        _, access = login_test_user(self.client, approver, password)
+
+        response = self.client.put(
+            f"/authenticated/inventory_query/edit/{piece['_id']}/",
+            {"isApproved": True},
+            format="json",
+            **self.authorization(access),
+        )
+
+        photograph = self.mongo.connect("photographs").find_one(
+            {"_id": photograph_id}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data, "piece updated")
+        self.assertEqual(photograph["file_name"], new_file_name)
+        self.assertEqual(photograph["size"], 95)
+        self.assertEqual(photograph["mime_type"], "image/png")
+        self.assertTrue(
+            os.path.isfile(
+                os.path.join(self.inventory_photo_directory, new_file_name)
+            )
+        )
+        self.assertTrue(
+            os.path.isfile(
+                os.path.join(self.inventory_thumbnail_directory, new_file_name)
+            )
+        )
+        self.assertFalse(
+            os.path.exists(
+                os.path.join(self.temporary_upload_directory, new_file_name)
+            )
+        )
+        return old_file_name
+
+    def test_inventory_photo_replacement_succeeds_when_old_file_is_missing(self):
+        old_file_name = self.approve_inventory_photo_replacement(
+            old_file_exists=False
+        )
+        self.assertFalse(
+            os.path.exists(
+                os.path.join(
+                    self.inventory_photo_directory,
+                    "deleted_" + old_file_name,
+                )
+            )
+        )
+
+    def test_inventory_photo_replacement_archives_existing_old_file(self):
+        old_file_name = self.approve_inventory_photo_replacement(
+            old_file_exists=True
+        )
+        self.assertTrue(
+            os.path.isfile(
+                os.path.join(
+                    self.inventory_photo_directory,
+                    "deleted_" + old_file_name,
+                )
             )
         )
 
@@ -2520,6 +2632,36 @@ class MongoAPIIntegrationTests(SimpleTestCase):
         self.assertEqual(stored["authorized_by_movements"], user["_id"])
         self.assertIsInstance(stored["movements_id"], int)
         self.assertNotIn("movement_id", stored)
+
+    def test_movement_id_counter_is_atomic_under_concurrency(self):
+        mongo = self.mongo
+        with ThreadPoolExecutor(max_workers=20) as executor:
+            ids = list(executor.map(lambda _: get_next_movement_id(mongo), range(20)))
+        self.assertTrue(all(isinstance(value, int) for value in ids))
+        self.assertEqual(len(set(ids)), 20)
+        self.assertEqual(sorted(ids), list(range(1, 21)))
+        counter = mongo.connect("counters").find_one({"_id": "movements_id"})
+        self.assertEqual(counter["seq"], max(ids))
+
+    def test_movements_unique_index_is_created_idempotently(self):
+        self.assertEqual(ensure_movements_indexes(self.mongo), "movements_id_1")
+        self.assertEqual(ensure_movements_indexes(self.mongo), "movements_id_1")
+        indexes = [index for index in self.mongo.connect("movements").list_indexes() if index["name"] == "movements_id_1"]
+        self.assertEqual(len(indexes), 1)
+        self.assertTrue(indexes[0]["unique"])
+
+    def test_movements_unique_index_rejects_duplicate_ids(self):
+        ensure_movements_indexes(self.mongo)
+        collection = self.mongo.connect("movements")
+        collection.insert_one({"movements_id": 77, "movement_type": "internal"})
+        with self.assertRaises(DuplicateKeyError):
+            collection.insert_one({"movements_id": 77, "movement_type": "external"})
+
+    def test_movements_unique_index_allows_distinct_ids(self):
+        ensure_movements_indexes(self.mongo)
+        collection = self.mongo.connect("movements")
+        collection.insert_many([{"movements_id": 1}, {"movements_id": 2}])
+        self.assertEqual(collection.count_documents({}), 2)
 
     def test_piece_creation_generates_initial_movement(self):
         self.create_movement_catalogs()

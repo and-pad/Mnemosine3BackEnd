@@ -19,6 +19,7 @@ from user_queries.views.common.utils import (
     oid_list,
 )
 from user_queries.views.tools import AuditManager
+from user_queries.views.movements.base import get_next_movement_id
 
 """
 def get_collection_json(self, mongo, collection_name, query=None, sort_field=None):
@@ -221,13 +222,7 @@ def process_put(request, mongo, session, cursor_change, _id):
     # raise Exception("Debugging stop")
     admitedat = cursor_change.get("new_piece", {}).get("admitted_at")
     location_id = cursor_change.get("new_piece", {}).get("location_id")
-    movement_doc = mongo.connect("movements").find_one(
-        {}, sort=[("movements_id", -1)], projection={"movements_id": 1, "_id": 0}
-    )
-    if movement_doc:
-        movements_id = movement_doc["movements_id"] + 1
-    else:
-        movements_id = 1
+    movements_id = get_next_movement_id(mongo)
 
     movement_data = {
         "movements_id": movements_id,

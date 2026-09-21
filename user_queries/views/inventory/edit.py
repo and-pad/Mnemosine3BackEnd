@@ -498,6 +498,12 @@ class InventoryEdit(APIView):
             {"piece_id": ObjectId(_id), "approved_rejected": None}
         )
 
+        if cursor_change is None:
+            return Response(
+                "No pending inventory changes were found",
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
         if cursor_change is not None:
             id_change_fields = {
                 "gender_id",
@@ -535,24 +541,24 @@ class InventoryEdit(APIView):
             }
             
 
-            is_approved = request.data.get("isApproved")
-            if is_approved and "changed_pics" in cursor_change:
-                self.process_changed_pics(cursor_change, user_id, _id)
-            if is_approved and "changed_pics_info" in cursor_change:
-                self.process_changed_pics_info(cursor_change, user_id, _id)
-            if is_approved and "new_pics" in cursor_change:
-                self.process_new_pics(cursor_change, user_id, _id)
-
-            if is_approved and "changed_docs" in cursor_change:
-                self.process_changed_docs(cursor_change, user_id, _id)
-            if is_approved and "changed_docs_info" in cursor_change:
-                self.process_changed_docs_info(cursor_change, user_id, _id)
-            if is_approved and "new_docs" in cursor_change:
-                self.process_new_docs(cursor_change, user_id, _id)
-
             try:
                 is_approved = request.data.get("isApproved")
                 print(is_approved)
+                if is_approved:
+                    change_handlers = (
+                        ("changed_pics", self.process_changed_pics),
+                        ("changed_pics_info", self.process_changed_pics_info),
+                        ("new_pics", self.process_new_pics),
+                        ("changed_docs", self.process_changed_docs),
+                        ("changed_docs_info", self.process_changed_docs_info),
+                        ("new_docs", self.process_new_docs),
+                    )
+                    for change_key, handler in change_handlers:
+                        if change_key in cursor_change:
+                            error_response = handler(cursor_change, user_id, _id)
+                            if error_response is not None:
+                                return error_response
+
                 piece = mongo.connect("pieces")
                 pieceStateBeforeChanges = piece.find_one({"_id": ObjectId(_id)})
                 if is_approved:
@@ -589,6 +595,11 @@ class InventoryEdit(APIView):
                         )
                         return Response("piece updated", status=status.HTTP_200_OK)
 
+                    return Response(
+                        "The pending inventory change could not be marked as approved",
+                        status=status.HTTP_409_CONFLICT,
+                    )
+
                 else:
 
                     print("test if not approved")
@@ -603,6 +614,11 @@ class InventoryEdit(APIView):
                     )
                     if result.modified_count > 0:
                         return Response("piece rejected", status=status.HTTP_200_OK)
+
+                    return Response(
+                        "The pending inventory change could not be marked as rejected",
+                        status=status.HTTP_409_CONFLICT,
+                    )
 
             except Exception as e:
                 return Response(str(e), status=status.HTTP_400_BAD_REQUEST)
@@ -645,9 +661,8 @@ class InventoryEdit(APIView):
 
     def process_changed_pics(self, cursor_change, user_id, _id):
         mongo = Mongo()
-        
+
         try:
-            moduleId = self.get_module_id("inventory", mongo)
             print("Changed pics", cursor_change["changed_pics"])
             for pic in cursor_change["changed_pics"]:
                 print("pic", pic)
@@ -655,64 +670,85 @@ class InventoryEdit(APIView):
                 photo_cursor = mongo.connect("photographs").find_one(
                     {"_id": pic["_id"]}
                 )
+                if photo_cursor is None:
+                    raise ValueError("The photo registry to replace does not exist")
 
-                # renaming the actual photo beacuse is deleting,
-                # but just we gona to change the file name adding
-                # one underscore "_" and "deleted" i.e deleted_Asdweasd.jpg
-                source = os.path.join(
+                old_source = os.path.join(
                     settings.PHOTO_INVENTORY_PATH, photo_cursor["file_name"]
                 )
-                destination = os.path.join(
+                old_destination = os.path.join(
                     settings.PHOTO_INVENTORY_PATH,
                     "deleted_" + photo_cursor["file_name"],
                 )
-                shutil.move(source, destination)
-                # actualizando la foto en la coleccion
-                cursor = mongo.connect("photographs").update_one(
-                    {"_id": pic["_id"]},
-                    {
-                        "$set": {
-                            "file_name": pic["file_name"],
-                            "size": pic["size"],
-                            "mime_type": pic["mime_type"],
-                        }
-                    },
+                new_source = os.path.join(
+                    settings.TEMPORARY_UPLOAD_DIRECTORY, pic["file_name"]
                 )
-                # copiando la imagen del temporal al inventario
-                if cursor.modified_count > 0:
-                    print("se inserto la imagen en la coleccion")
-                    source = os.path.join(
-                        settings.TEMPORARY_UPLOAD_DIRECTORY, pic["file_name"]
-                    )
-                    destination = os.path.join(
-                        settings.PHOTO_INVENTORY_PATH, pic["file_name"]
-                    )
-                    shutil.move(source, destination)
-                    # creando la miniatura
-                    img = Image.open(
-                        settings.PHOTO_INVENTORY_PATH + pic["file_name"]
-                    )
-                    width_thumbnail = 100
-                    height_thumbnail = int(img.height * (width_thumbnail / img.width))
-                    img_thumbnail = img.resize((width_thumbnail, height_thumbnail))
-                    img_thumbnail.save(
-                        settings.THUMBNAILS_INVENTORY_PATH + pic["file_name"]
+                new_destination = os.path.join(
+                    settings.PHOTO_INVENTORY_PATH, pic["file_name"]
+                )
+                thumbnail_destination = os.path.join(
+                    settings.THUMBNAILS_INVENTORY_PATH, pic["file_name"]
+                )
+
+                if not os.path.isfile(new_source):
+                    raise FileNotFoundError(
+                        "The pending replacement image does not exist: "
+                        + pic["file_name"]
                     )
 
-                    source = os.path.join(
-                        settings.TEMPORARY_UPLOAD_DIRECTORY, pic["file_name"]
-                    )
-                    """
-                    destination = os.path.join(
-                        settings.TEMPORARY_UPLOAD_DIRECTORY, "used_" + pic["file_name"]
-                    )
-                    """#este codigo se usa si solo quieres marcar la imagen como usada
-                    os.remove(source)
-                    print("se movio la imagen del temporal al inventario")
-                else:
-                    print("no se inserto la imagen en la coleccion")
+                old_was_archived = False
+                try:
+                    # Keep the pending upload until MongoDB confirms the replacement.
+                    shutil.copy2(new_source, new_destination)
+                    with Image.open(new_destination) as img:
+                        width_thumbnail = 100
+                        height_thumbnail = int(
+                            img.height * (width_thumbnail / img.width)
+                        )
+                        img_thumbnail = img.resize(
+                            (width_thumbnail, height_thumbnail)
+                        )
+                        img_thumbnail.save(thumbnail_destination)
 
-            print("ModuleId", moduleId)
+                    # A missing old file is recoverable: the database record still
+                    # provides all the information required for the replacement.
+                    if os.path.isfile(old_source):
+                        shutil.move(old_source, old_destination)
+                        old_was_archived = True
+
+                    # Update MongoDB only after the new image and thumbnail exist.
+                    cursor = mongo.connect("photographs").update_one(
+                        {"_id": pic["_id"]},
+                        {
+                            "$set": {
+                                "file_name": pic["file_name"],
+                                "size": pic["size"],
+                                "mime_type": pic["mime_type"],
+                            }
+                        },
+                    )
+                    if cursor.matched_count == 0:
+                        raise ValueError(
+                            "The photo registry to replace no longer exists"
+                        )
+                except Exception:
+                    if old_was_archived and not os.path.exists(old_source):
+                        shutil.move(old_destination, old_source)
+                    if os.path.exists(new_destination):
+                        os.remove(new_destination)
+                    if os.path.exists(thumbnail_destination):
+                        os.remove(thumbnail_destination)
+                    raise
+
+                try:
+                    os.remove(new_source)
+                except OSError as cleanup_error:
+                    print(
+                        "The applied replacement image could not be removed from "
+                        f"temporary storage: {cleanup_error}"
+                    )
+
+                print("se movio la imagen del temporal al inventario")
 
         except Exception as e:
             return Response(
